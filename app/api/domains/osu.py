@@ -1574,6 +1574,12 @@ if app.settings.REDIRECT_OSU_URLS:
             status_code=status.HTTP_301_MOVED_PERMANENTLY,
         )
 
+    async def profile_redirect(file_path: str) -> Response:
+        return RedirectResponse(
+            url=f"https://{app.settings.DOMAIN}/u/{file_path}",
+            status_code=status.HTTP_301_MOVED_PERMANENTLY,
+        )
+
     for pattern in (
         "/beatmapsets/{_}",
         "/beatmaps/{_}",
@@ -1581,6 +1587,8 @@ if app.settings.REDIRECT_OSU_URLS:
         "/community/forums/topics/{_}",
     ):
         router.get(pattern)(osu_redirect)
+
+    router.get("/u/{file_path:path}")(profile_redirect)
 
 
 @router.get("/ss/{screenshot_id}.{extension}")
