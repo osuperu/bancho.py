@@ -450,8 +450,10 @@ async def api_get_player_scores(
 
     # fetch & return info from sql
     for row in rows:
+        mods = Mods(row["mods"])
         bmap = await Beatmap.from_md5(row.pop("map_md5"))
         row["beatmap"] = bmap.as_dict if bmap else None
+        row["mods_readable"] = mods.__repr__()
 
     clan: clans_repo.Clan | None = None
     if player.clan_id:
@@ -629,7 +631,7 @@ async def api_get_map_scores(
         mods = None
 
     query = [
-        "SELECT s.map_md5, s.score, s.pp, s.acc, s.max_combo, s.mods, "
+        "SELECT s.map_md5, s.id, s.score, s.pp, s.acc, s.max_combo, s.mods, "
         "s.n300, s.n100, s.n50, s.nmiss, s.ngeki, s.nkatu, s.grade, s.status, "
         "s.mode, s.play_time, s.time_elapsed, s.userid, s.perfect, "
         "u.name player_name, u.country player_country, "

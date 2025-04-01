@@ -1567,10 +1567,16 @@ async def checkUpdates(
 
 
 if app.settings.REDIRECT_OSU_URLS:
-    # NOTE: this will likely be removed with the addition of a frontend.
-    async def osu_redirect(request: Request, _: int = Path(...)) -> Response:
+
+    async def osu_redirect_beatmaps(file_path: str) -> Response:
         return RedirectResponse(
-            url=f"https://osu.ppy.sh{request['path']}",
+            url=f"https://{app.settings.DOMAIN}/b/{file_path}",
+            status_code=status.HTTP_301_MOVED_PERMANENTLY,
+        )
+
+    async def osu_redirect_beatmapsets(file_path: str) -> Response:
+        return RedirectResponse(
+            url=f"https://{app.settings.DOMAIN}/s/{file_path}",
             status_code=status.HTTP_301_MOVED_PERMANENTLY,
         )
 
@@ -1580,14 +1586,11 @@ if app.settings.REDIRECT_OSU_URLS:
             status_code=status.HTTP_301_MOVED_PERMANENTLY,
         )
 
-    for pattern in (
-        "/beatmapsets/{_}",
-        "/beatmaps/{_}",
-        "/beatmapsets/{_}/discussion",
-        "/community/forums/topics/{_}",
-    ):
-        router.get(pattern)(osu_redirect)
-
+    router.get("/b/{file_path:path}")(osu_redirect_beatmaps)
+    router.get("/beatmaps/{file_path:path}")(osu_redirect_beatmaps)
+    router.get("/s/{file_path:path}")(osu_redirect_beatmapsets)
+    router.get("/beatmapsets/{file_path:path}")(osu_redirect_beatmapsets)
+    router.get("/community/forums/topics/{file_path:path}")(osu_redirect_beatmaps)
     router.get("/u/{file_path:path}")(profile_redirect)
 
 
