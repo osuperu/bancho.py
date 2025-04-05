@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
 import os
 import pprint
@@ -44,6 +45,9 @@ from app.constants.mods import SPEED_CHANGING_MODS
 from app.constants.mods import Mods
 from app.constants.privileges import ClanPrivileges
 from app.constants.privileges import Privileges
+from app.discord import Webhook
+from app.discord_utils import create_beatmap_status_change_embed
+from app.discord_utils import create_beatmapset_status_change_embed
 from app.logging import Ansi
 from app.logging import log
 from app.objects.beatmap import Beatmap
@@ -657,6 +661,16 @@ async def _map(ctx: Context) -> str | None:
                 _bmap.status = new_status
                 _bmap.frozen = True
 
+            webhook_url = app.settings.DISCORD_BEATMAP_UPDATES_WEBHOOK
+            if webhook_url:
+                embed = create_beatmapset_status_change_embed(
+                    bmapset=app.state.cache.beatmapset[bmap.set_id],
+                    status=new_status,
+                    player=ctx.player,
+                )
+                webhook = Webhook(webhook_url, embeds=[embed])
+                asyncio.create_task(webhook.post())
+
             # select all map ids for clearing map requests.
             modified_beatmap_ids = [
                 row["id"]
@@ -673,6 +687,16 @@ async def _map(ctx: Context) -> str | None:
             if bmap.md5 in app.state.cache.beatmap:
                 app.state.cache.beatmap[bmap.md5].status = new_status
                 app.state.cache.beatmap[bmap.md5].frozen = True
+
+                webhook_url = app.settings.DISCORD_BEATMAP_UPDATES_WEBHOOK
+                if webhook_url:
+                    embed = create_beatmap_status_change_embed(
+                        bmap=app.state.cache.beatmap[bmap.md5],
+                        status=new_status,
+                        player=ctx.player,
+                    )
+                    webhook = Webhook(webhook_url, embeds=[embed])
+                    asyncio.create_task(webhook.post())
 
             modified_beatmap_ids = [bmap.id]
 
