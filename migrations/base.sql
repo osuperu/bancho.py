@@ -372,6 +372,19 @@ create index users_clan_priv_index
 create index users_country_index
 	on users (country);
 
+create table tokens
+(
+	id int auto_increment
+		primary key,
+	userid int not null,
+	priv int default 1 not null,
+	description varchar(64) not null,
+	token varchar(32) not null,
+	private tinyint(1) not null,
+	constraint tokens_token_uindex
+		unique (token)
+);
+
 insert into users (id, name, safe_name, priv, country, silence_end, email, pw_bcrypt, creation_time, latest_activity)
 values (1, 'BanchoBot', 'banchobot', 1, 'ca', 0, 'bot@akatsuki.pw',
         '_______________________my_cool_bcrypt_______________________', UNIX_TIMESTAMP(), UNIX_TIMESTAMP());

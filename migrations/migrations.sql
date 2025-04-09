@@ -475,3 +475,17 @@ create index users_country_index
 # v5.2.2
 create index scores_fetch_leaderboard_generic_index
 	on scores (map_md5, status, mode);
+
+# v5.2.3
+create table tokens
+(
+	id int auto_increment
+		primary key,
+	userid int not null,
+	priv int default 1 not null,
+	description varchar(64) not null,
+	token varchar(32) not null,
+	private tinyint(1) not null,
+	constraint tokens_token_uindex
+		unique (token)
+);
