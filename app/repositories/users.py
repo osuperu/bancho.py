@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from enum import StrEnum
+from typing import Literal
 from typing import TypedDict
 from typing import cast
 
 from sqlalchemy import Column
+from sqlalchemy import Enum
 from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import String
@@ -18,6 +21,11 @@ from app._typing import UNSET
 from app._typing import _UnsetSentinel
 from app.repositories import Base
 from app.utils import make_safe_name
+
+
+class LeaderboardPreference(StrEnum):
+    PP = "pp"
+    SCORE = "score"
 
 
 class UsersTable(Base):
@@ -42,6 +50,11 @@ class UsersTable(Base):
     custom_badge_icon = Column(String(64))
     userpage_content = Column(String(2048, collation="utf8"))
     api_key = Column(String(36))
+    lb_preference = Column(
+        Enum(LeaderboardPreference, name="lb_preference"),
+        nullable=False,
+        server_default="score",
+    )
 
     __table_args__ = (
         Index("users_priv_index", priv),
@@ -72,6 +85,7 @@ READ_PARAMS = (
     UsersTable.custom_badge_name,
     UsersTable.custom_badge_icon,
     UsersTable.userpage_content,
+    UsersTable.lb_preference,
 )
 
 
@@ -94,6 +108,7 @@ class User(TypedDict):
     custom_badge_icon: str | None
     userpage_content: str | None
     api_key: str | None
+    lb_preference: LeaderboardPreference
 
 
 async def create(
@@ -224,6 +239,7 @@ async def partial_update(
     custom_badge_icon: str | None | _UnsetSentinel = UNSET,
     userpage_content: str | None | _UnsetSentinel = UNSET,
     api_key: str | None | _UnsetSentinel = UNSET,
+    lb_preference: LeaderboardPreference | _UnsetSentinel = UNSET,
 ) -> User | None:
     """Update a user in the database."""
     update_stmt = update(UsersTable).where(UsersTable.id == id)
@@ -259,6 +275,8 @@ async def partial_update(
         update_stmt = update_stmt.values(userpage_content=userpage_content)
     if not isinstance(api_key, _UnsetSentinel):
         update_stmt = update_stmt.values(api_key=api_key)
+    if not isinstance(lb_preference, _UnsetSentinel):
+        update_stmt = update_stmt.values(lb_preference=lb_preference)
 
     await app.state.services.database.execute(update_stmt)
 

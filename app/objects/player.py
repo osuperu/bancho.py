@@ -10,6 +10,7 @@ from enum import StrEnum
 from enum import unique
 from functools import cached_property
 from typing import TYPE_CHECKING
+from typing import Literal
 from typing import TypedDict
 from typing import cast
 
@@ -214,6 +215,7 @@ class Player:
         priv: Privileges,
         pw_bcrypt: bytes | None,
         token: str,
+        lb_preference: users_repo.LeaderboardPreference,
         clan_id: int | None = None,
         clan_priv: ClanPrivileges | None = None,
         geoloc: Geolocation | None = None,
@@ -252,6 +254,7 @@ class Player:
         self.is_bot_client = is_bot_client
         self.is_tourney_client = is_tourney_client
         self.api_key = api_key
+        self.lb_preference = lb_preference
 
         # avoid enqueuing packets to bot accounts.
         if self.is_bot_client:

@@ -4,6 +4,8 @@ from collections.abc import Iterable
 from collections.abc import Iterator
 from collections.abc import Sequence
 from typing import Any
+from typing import Literal
+from typing import cast
 
 import databases.core
 
@@ -225,6 +227,7 @@ class Players(list[Player]):
             silence_end=player["silence_end"],
             donor_end=player["donor_end"],
             api_key=player["api_key"],
+            lb_preference=player["lb_preference"],
         )
 
     async def from_cache_or_sql(
@@ -302,6 +305,7 @@ async def initialize_ram_caches() -> None:
         token=Player.generate_token(),
         login_time=float(0x7FFFFFFF),  # (never auto-dc)
         is_bot_client=True,
+        lb_preference=users_repo.LeaderboardPreference.SCORE,
     )
     app.state.sessions.players.append(app.state.sessions.bot)
 

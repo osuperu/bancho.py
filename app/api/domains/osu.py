@@ -16,6 +16,7 @@ from functools import cache
 from pathlib import Path as SystemPath
 from typing import Any
 from typing import Literal
+from typing import cast
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 
@@ -1151,7 +1152,7 @@ async def get_leaderboard_scores(
     mode: int,
     mods: Mods,
     player: Player,
-    scoring_metric: Literal["pp", "score"],
+    scoring_metric: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     query = [
         f"SELECT s.id, s.{scoring_metric} AS _score, "
@@ -1284,9 +1285,7 @@ async def getScores(
         if not player.restricted:
             app.state.sessions.players.enqueue(app.packets.user_stats(player))
 
-    scoring_metric: Literal["pp", "score"] = (
-        "pp" if mode >= GameMode.RELAX_OSU else "score"
-    )
+    scoring_metric: str = "pp" if mode >= GameMode.RELAX_OSU else player.lb_preference
 
     bmap = await Beatmap.from_md5(map_md5, set_id=map_set_id)
     has_set_id = map_set_id > 0

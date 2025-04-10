@@ -489,3 +489,6 @@ create table tokens
 	constraint tokens_token_uindex
 		unique (token)
 );
+
+# v5.2.4
+alter table users add lb_preference enum('pp', 'score') default 'score' not null;

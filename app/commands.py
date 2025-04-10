@@ -22,10 +22,12 @@ from pathlib import Path
 from time import perf_counter_ns as clock_ns
 from typing import TYPE_CHECKING
 from typing import Any
+from typing import Literal
 from typing import NamedTuple
 from typing import NoReturn
 from typing import Optional
 from typing import TypedDict
+from typing import cast
 from urllib.parse import urlparse
 
 import cpuinfo
@@ -568,6 +570,25 @@ async def apikey(ctx: Context) -> str | None:
     app.state.sessions.api_keys[ctx.player.api_key] = ctx.player.id
 
     return f"API key generated. Copy your api key from (this url)[http://{ctx.player.api_key}]."
+
+
+@command(Privileges.UNRESTRICTED, aliases=["lb"])
+async def leaderboard(ctx: Context) -> str | None:
+    """Switches the leaderboard display mode between pp and score."""
+    if len(ctx.args) < 1 or ctx.args[0] not in ("pp", "score"):
+        return "Invalid syntax: !leaderboard <pp/score>"
+
+    await users_repo.partial_update(
+        id=ctx.player.id,
+        lb_preference=users_repo.LeaderboardPreference(ctx.args[0]),
+    )
+
+    ctx.player.enqueue(
+        app.packets.notification(f"Leaderboard display mode set to {ctx.args[0]}!"),
+    )
+    ctx.player.logout()
+
+    return None
 
 
 """ Nominator commands

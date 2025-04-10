@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from typing import TypedDict
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import bcrypt
@@ -168,14 +169,16 @@ async def bancho_view_matches() -> Response:
 <!DOCTYPE html>
 <body style="font-family: monospace;  white-space: pre-wrap;"><a href="/">back</a>
 matches:
-{new_line.join(
-    f'''{(ON_GOING if m.in_progress else IDLE):<{max_status_length}} ({m.id:>{match_id_max_length}}): {m.name}
+{
+            new_line.join(
+                f'''{(ON_GOING if m.in_progress else IDLE):<{max_status_length}} ({m.id:>{match_id_max_length}}): {m.name}
 -- '''
-    + f"{new_line}-- ".join([
-        f'{BEATMAP:<{max_properties_length}}: {m.map_name}',
-        f'{HOST:<{max_properties_length}}: <{m.host.id}> {m.host.safe_name}'
-    ]) for m in matches
-)}
+                + f"{new_line}-- ".join([
+                    f'{BEATMAP:<{max_properties_length}}: {m.map_name}',
+                    f'{HOST:<{max_properties_length}}: <{m.host.id}> {m.host.safe_name}',
+                ]) for m in matches
+            )
+        }
 </body>
 </html>""",
     )
@@ -867,6 +870,7 @@ async def handle_osu_login_request(
         login_time=login_time,
         is_tourney_client=osu_version.stream == "tourney",
         api_key=user_info["api_key"],
+        lb_preference=user_info["lb_preference"],
     )
 
     data = bytearray(app.packets.protocol_version(19))
