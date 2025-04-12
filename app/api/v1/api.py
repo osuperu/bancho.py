@@ -345,6 +345,7 @@ async def api_get_player_scores(
     mods_arg: str | None = Query(None, alias="mods"),
     mode_arg: int = Query(0, alias="mode", ge=0, le=11),
     limit: int = Query(25, ge=1, le=100),
+    page: int = Query(1, ge=1),
     include_loved: bool = False,
     include_failed: bool = True,
 ) -> Response:
@@ -440,8 +441,9 @@ async def api_get_player_scores(
 
         sort = "t.play_time"
 
-    query.append(f"ORDER BY {sort} DESC LIMIT :limit")
+    query.append(f"ORDER BY {sort} DESC LIMIT :limit OFFSET :offset")
     params["limit"] = limit
+    params["offset"] = (page - 1) * limit
 
     rows = [
         dict(row)
