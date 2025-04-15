@@ -42,7 +42,7 @@ readme = "README.md"
 packages = [{ include = "bancho" }]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.13"
 async-timeout = "4.0.3"
 bcrypt = "4.1.2"
 datadog = "0.48.0"
@@ -75,6 +75,9 @@ coverage = "^7.4.1"
 databases = { version = "^0.8.0", extras = ["mysql"] }
 python-json-logger = "^2.0.7"
 greenlet = "3.1.1"
+pillow = "^11.2.1"
+pydub = "^0.25.1"
+audioop-lts = "^0.2.1"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "3.6.1"
