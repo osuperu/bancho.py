@@ -84,12 +84,6 @@ async def update_beatmaps(
     required_maps = max(len(bmap_ids) - len(current_bmap_ids), 0)
 
     # Create new beatmaps
-    await mapsets_repo.create(
-        id=bmapset[0]["set_id"],
-        server=MapServer.PRIVATE,
-        last_osuapi_check=datetime.now(),
-    )
-
     new_bmap_ids = [
         (
             await maps_repo.create(
@@ -97,7 +91,9 @@ async def update_beatmaps(
                 server=MapServer.PRIVATE,
                 set_id=bmapset[0]["set_id"],
                 status=RankedStatus.Pending,
-                md5="",
+                md5=hashlib.md5(
+                    str(await maps_repo.generate_next_beatmap_id()).encode("utf-8"),
+                ).hexdigest(),
                 artist=bmapset[0]["artist"],
                 title=bmapset[0]["title"],
                 version=bmapset[0]["version"],

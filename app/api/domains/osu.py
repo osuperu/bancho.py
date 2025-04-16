@@ -6,6 +6,7 @@ import base64
 import copy
 import hashlib
 import io
+import os
 import pathlib
 import random
 import secrets
@@ -79,6 +80,7 @@ from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
 from app.repositories.achievements import Achievement
 from app.repositories.maps import INITIAL_MAP_ID
+from app.repositories.maps import INITIAL_SET_ID
 from app.repositories.maps import MapServer
 from app.usecases import achievements as achievements_usecases
 from app.usecases import maps as maps_usecases
@@ -205,8 +207,11 @@ async def osuOsz2BeatmapSubmitGetId(
             )
             return bss_error_response(1)
 
-        if bmapset[0]["status"] > RankedStatus.Pending:
-            log("Failed to update beatmapset: Beatmapset is ranked or loved", Ansi.LRED)
+        if any(bmap["status"] > RankedStatus.Pending for bmap in bmapset):
+            log(
+                "Failed to update beatmapset: There are ranked/loved beatmaps",
+                Ansi.LRED,
+            )
             return bss_error_response(3)
 
         # Create/Remove new beatmaps if neccesary
@@ -281,8 +286,8 @@ async def osuOsz2BeatmapSubmitUpload(
         )
         return bss_error_response(1)
 
-    if bmapset[0]["status"] > RankedStatus.Pending:
-        log("Failed to update beatmapset: Beatmapset is ranked or loved", Ansi.LRED)
+    if any(bmap["status"] > RankedStatus.Pending for bmap in bmapset):
+        log("Failed to update beatmapset: There are ranked/loved beatmaps", Ansi.LRED)
         return bss_error_response(3)
 
     osz2_file = submission_file.file.read()
@@ -321,7 +326,7 @@ async def osuOsz2BeatmapSubmitUpload(
     data = await maps_usecases.decrypt_osz2(osz2_file)
 
     if not data:
-        pathlib.Path(OSZ2_PATH / f"{bmapset[0]['set_id']}.osz2").unlink()
+        os.remove(OSZ2_PATH / f"{bmapset[0]['set_id']}.osz2")
         log("Failed to upload beatmap: Failed to decrypt osz2 file")
         return bss_error_response(
             5,
@@ -406,6 +411,13 @@ async def osuOsz2BeatmapSubmitUpload(
             5,
             "Something went wrong while processing your beatmap. Please try again!",
         )
+
+    for bmap in bmapset:
+        if app.state.cache.beatmap.get(bmap["id"]):
+            app.state.cache.beatmap.pop(bmap["id"])
+
+    if app.state.cache.beatmapset.get(bmapset[0]["set_id"]):
+        app.state.cache.beatmapset.pop(bmapset[0]["set_id"])
 
     log(
         f"{player.name} successfully {"uploaded" if full_submit else "updated"} a beatmapset",
@@ -707,57 +719,71 @@ async def osuSearchHandler(
 
     result = response.json()
 
-    lresult = len(result)  # send over 100 if we receive
-    # 100 matches, so the client
-    # knows there are more to get
+    # Fetch beatmapsets uploaded on bancho.py
+    bpy_bmapsets = await maps_repo.fetch_many(
+        mode=None if mode == -1 else GameMode(mode),
+        status=RankedStatus.from_osudirect(ranked_status),
+        page=page_num + 1,
+        page_size=100,
+        server=MapServer.PRIVATE,
+    )
 
-    # TODO: add beatmapsets uploaded on bancho.py
-
-    ret = [f"{'101' if lresult == 100 else lresult}"]
+    normalized_result = []
     for bmapset in result:
-        if bmapset["ChildrenBeatmaps"] is None:
-            continue
+        for child in bmapset["ChildrenBeatmaps"]:
+            normalized_result.append(
+                {
+                    "id": child["BeatmapID"],
+                    "set_id": bmapset["SetID"],
+                    "status": bmapset["RankedStatus"],
+                    "md5": child["FileMD5"],
+                    "artist": bmapset["Artist"],
+                    "title": bmapset["Title"],
+                    "version": child["DiffName"],
+                    "creator": bmapset["Creator"],
+                    "filename": None,
+                    "last_update": bmapset["LastUpdate"],
+                    "total_length": child["TotalLength"],
+                    "max_combo": child["MaxCombo"],
+                    "frozen": 0,
+                    "plays": child["Playcount"],
+                    "passes": child["Passcount"],
+                    "mode": child["Mode"],
+                    "bpm": child["BPM"],
+                    "cs": child["CS"],
+                    "ar": child["AR"],
+                    "od": child["OD"],
+                    "hp": child["HP"],
+                    "diff": child["DifficultyRating"],
+                },
+            )
 
-        # some mirrors use a true/false instead of 0 or 1
-        bmapset["HasVideo"] = int(bmapset["HasVideo"])
+    combined_results = bpy_bmapsets + normalized_result
 
-        diff_sorted_maps = sorted(
-            bmapset["ChildrenBeatmaps"],
-            key=lambda m: m["DifficultyRating"],
-        )
+    unique_results = {bmap["set_id"]: bmap for bmap in combined_results}.values()
 
-        def handle_invalid_characters(s: str) -> str:
-            # XXX: this is a bug that exists on official servers (lmao)
-            # | is used to delimit the set data, so the difficulty name
-            # cannot contain this or it will be ignored. we fix it here
-            # by using a different character.
-            return s.replace("|", "I")
+    # Format results for the client
+    ret = [f"{'101' if len(unique_results) == 100 else len(unique_results)}"]
 
-        diffs_str = ",".join(
-            [
-                DIRECT_MAP_INFO_FMTSTR.format(
-                    DifficultyRating=row["DifficultyRating"],
-                    DiffName=handle_invalid_characters(row["DiffName"]),
-                    CS=row["CS"],
-                    OD=row["OD"],
-                    AR=row["AR"],
-                    HP=row["HP"],
-                    Mode=row["Mode"],
-                )
-                for row in diff_sorted_maps
-            ],
-        )
-
+    for bmap in unique_results:
         ret.append(
             DIRECT_SET_INFO_FMTSTR.format(
-                Artist=handle_invalid_characters(bmapset["Artist"]),
-                Title=handle_invalid_characters(bmapset["Title"]),
-                Creator=bmapset["Creator"],
-                RankedStatus=bmapset["RankedStatus"],
-                LastUpdate=bmapset["LastUpdate"],
-                SetID=bmapset["SetID"],
-                HasVideo=bmapset["HasVideo"],
-                diffs=diffs_str,
+                SetID=bmap["set_id"],
+                Artist=bmap["artist"],
+                Title=bmap["title"],
+                Creator=bmap["creator"],
+                RankedStatus=bmap["status"],
+                LastUpdate=bmap["last_update"],
+                HasVideo=0,  # Not available in `bpy_bmapsets` or `result`
+                diffs=DIRECT_MAP_INFO_FMTSTR.format(
+                    DifficultyRating=bmap["diff"],
+                    DiffName=bmap["version"],
+                    CS=bmap["cs"],
+                    OD=bmap["od"],
+                    AR=bmap["ar"],
+                    HP=bmap["hp"],
+                    Mode=bmap["mode"],
+                ),
             ),
         )
 
@@ -1944,7 +1970,7 @@ async def get_osz(
     if no_video:
         map_set_id = map_set_id[:-1]
 
-    if int(map_set_id) >= INITIAL_MAP_ID:
+    if int(map_set_id) >= INITIAL_SET_ID:
         osz_disk_file = OSZ_PATH / f"{map_set_id}.osz"
 
         return Response(
