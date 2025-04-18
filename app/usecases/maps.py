@@ -77,6 +77,8 @@ async def update_beatmaps(
             # TODO: delete plays
             await maps_repo.delete_one(bmap_id)
 
+        # TODO: delete map files from disk
+
         log(f"Deleted {len(deleted_bmaps)} beatmaps", Ansi.GREEN)
         return bmap_ids
 
