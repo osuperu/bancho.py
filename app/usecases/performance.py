@@ -7,8 +7,10 @@ from typing import TypedDict
 
 from akatsuki_pp_py import Beatmap
 from akatsuki_pp_py import Calculator
+from akatsuki_pp_py import DifficultyAttributes
 
 from app.constants.mods import Mods
+from app.logging import log
 
 
 @dataclass
@@ -136,3 +138,18 @@ def calculate_performances(
         )
 
     return results
+
+
+def calculate_difficulty(bmap_file: bytes, mode: int) -> DifficultyAttributes | None:
+    calc_bmap = Beatmap(bytes=bmap_file)
+    calculator = Calculator(mode=mode)
+
+    result = calculator.difficulty(calc_bmap)
+
+    if math.isnan(result.stars):
+        return
+
+    if math.isinf(result.stars):
+        return
+
+    return result
