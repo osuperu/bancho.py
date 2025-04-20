@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 from typing import TypedDict
@@ -226,10 +227,11 @@ async def partial_update(
     name: str | _UnsetSentinel = UNSET,
     email: str | _UnsetSentinel = UNSET,
     priv: int | _UnsetSentinel = UNSET,
+    pw_bcrypt: bytes | _UnsetSentinel = UNSET,
     country: str | _UnsetSentinel = UNSET,
     silence_end: int | _UnsetSentinel = UNSET,
     donor_end: int | _UnsetSentinel = UNSET,
-    creation_time: _UnsetSentinel | _UnsetSentinel = UNSET,
+    creation_time: datetime | _UnsetSentinel = UNSET,
     latest_activity: int | _UnsetSentinel = UNSET,
     clan_id: int | _UnsetSentinel = UNSET,
     clan_priv: int | _UnsetSentinel = UNSET,
@@ -249,6 +251,8 @@ async def partial_update(
         update_stmt = update_stmt.values(email=email)
     if not isinstance(priv, _UnsetSentinel):
         update_stmt = update_stmt.values(priv=priv)
+    if not isinstance(pw_bcrypt, _UnsetSentinel):
+        update_stmt = update_stmt.values(pw_bcrypt=pw_bcrypt)
     if not isinstance(country, _UnsetSentinel):
         update_stmt = update_stmt.values(country=country)
     if not isinstance(silence_end, _UnsetSentinel):

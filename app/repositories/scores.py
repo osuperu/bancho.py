@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from typing import TypedDict
 from typing import cast
 
@@ -204,6 +205,7 @@ async def fetch_many(
     user_id: int | None = None,
     page: int | None = None,
     page_size: int | None = None,
+    order: Literal["asc", "desc"] | None = None,
 ) -> list[Score]:
     select_stmt = select(*READ_PARAMS)
     if map_md5 is not None:
@@ -216,6 +218,14 @@ async def fetch_many(
         select_stmt = select_stmt.where(ScoresTable.mode == mode)
     if user_id is not None:
         select_stmt = select_stmt.where(ScoresTable.userid == user_id)
+    if order is not None:
+        select_stmt = select_stmt.order_by(
+            (
+                ScoresTable.play_time.desc()
+                if order == "desc"
+                else ScoresTable.play_time.asc()
+            ),
+        )
 
     if page is not None and page_size is not None:
         select_stmt = select_stmt.limit(page_size).offset((page - 1) * page_size)
@@ -241,6 +251,19 @@ async def partial_update(
     select_stmt = select(*READ_PARAMS).where(ScoresTable.id == id)
     _score = await app.state.services.database.fetch_one(select_stmt)
     return cast(Score | None, _score)
+
+
+async def aggregate_pp_stats(
+    status: int | None = None,
+) -> int:
+    select_stmt = select(func.sum(ScoresTable.pp).label("sum_pp")).select_from(
+        ScoresTable,
+    )
+    if status is not None:
+        select_stmt = select_stmt.where(ScoresTable.status == status)
+    rec = await app.state.services.database.fetch_one(select_stmt)
+    assert rec is not None
+    return cast(int, rec["sum_pp"])
 
 
 # TODO: delete

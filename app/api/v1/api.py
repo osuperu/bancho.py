@@ -484,6 +484,16 @@ async def api_get_player_scores(
     )
 
 
+@router.get("/aggregate_pp_stats")
+async def aggregate_pp_stats(
+    status: int | None = Query(None, alias="status", ge=0, le=2),
+) -> Response:
+    """Return the aggregate pp stats of the server."""
+    return ORJSONResponse(
+        {"status": "success", "stats": await scores_repo.aggregate_pp_stats(status)},
+    )
+
+
 @router.get("/get_player_most_played")
 async def api_get_player_most_played(
     user_id: int | None = Query(None, alias="id", ge=3, le=2_147_483_647),
