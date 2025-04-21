@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Awaitable
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter
@@ -13,7 +15,10 @@ from app.api.v2.common import responses
 from app.api.v2.common.responses import Failure
 from app.api.v2.models.authentication import AuthenticationRequest
 from app.repositories import tokens
+from app.repositories import tokens as tokens_repo
+from app.repositories import users as users_repo
 from app.repositories.tokens import Token
+from app.repositories.users import User
 from app.usecases import authentication
 
 router = APIRouter()
@@ -21,6 +26,46 @@ router = APIRouter()
 
 def auth_failure_response(reason: str) -> dict[str, Any]:
     return {"error": reason}
+
+
+def authenticate_user_session(
+    token_alias: str = "X-Bpy-Token",
+) -> Callable[[str], Awaitable[User | Failure]]:
+    """Get a dependency function that authenticates a user by their access token.
+
+    Args:
+        token_alias: The name of the cookie containing the access token.
+
+    Returns:
+        A dependency function that returns a User if successful,
+        or a Failure response if authentication fails.
+    """
+
+    async def wrapper(
+        user_access_token: str = Cookie(..., alias=token_alias, strict=True),
+    ) -> User | Failure:
+        hashed_access_token = hashlib.md5(user_access_token.encode()).hexdigest()
+
+        token_data = await tokens_repo.fetch_one(hashed_access_token)
+        if token_data is None:
+            return responses.failure(
+                message="Invalid token.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        user = await users_repo.fetch_one(
+            id=token_data["userid"],
+            fetch_all_fields=True,
+        )
+        if user is None:
+            return responses.failure(
+                message="User not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        return user
+
+    return wrapper
 
 
 @router.post("/authenticate")
