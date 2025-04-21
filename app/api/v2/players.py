@@ -7,11 +7,14 @@ import hashlib
 import bcrypt
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import File
+from fastapi import UploadFile
 from fastapi import status
 from fastapi.param_functions import Query
 from fastapi.security import HTTPBearer
 
 import app.state.sessions
+from app.api.v1.api import AVATARS_PATH
 from app.api.v2.authentication import authenticate_user_session
 from app.api.v2.common import responses
 from app.api.v2.common.responses import Failure
@@ -150,6 +153,43 @@ async def update_player_email(
     )
 
     response = Player.from_mapping(updated_user)  # type: ignore
+    return responses.success(response)
+
+
+@router.put("/players/avatar")
+async def update_player_avatar(
+    avatar: UploadFile = File(..., alias="avatar"),
+    user: User | Failure = Depends(authenticate_user_session()),
+) -> Success[Player] | Failure:
+    if isinstance(user, Failure):
+        return user
+
+    if avatar.content_type not in ("image/png", "image/jpeg"):
+        return responses.failure(
+            message="Invalid file type.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    avatar_file = avatar.file.read()
+
+    if len(avatar_file) > 4 * 1024 * 1024:
+        return responses.failure(
+            message="File too large.",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+
+    # Check and remove existing avatar if any
+    for ext in ("jpg", "png"):
+        old_avatar_path = AVATARS_PATH / f"{user['id']}.{ext}"
+        if old_avatar_path.exists():
+            old_avatar_path.unlink()
+            break
+
+    ext = "png" if avatar.content_type == "image/png" else "jpg"
+    avatar_file_path = AVATARS_PATH / f"{user['id']}.{ext}"
+    avatar_file_path.write_bytes(avatar_file)
+
+    response = Player.from_mapping(user)
     return responses.success(response)
 
 
