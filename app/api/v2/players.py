@@ -112,6 +112,126 @@ async def get_player_friends(
     )
 
 
+@router.put("/players/username")
+async def update_player_username(
+    args: UpdatePlayerUsernameRequest,
+    user_access_token: str = Cookie(..., alias="X-Bpy-Token", strict=True),
+) -> Success[Player] | Failure:
+    hashed_access_token = hashlib.md5(user_access_token.encode()).hexdigest()
+
+    token_data = await tokens_repo.fetch_one(hashed_access_token)
+    if token_data is None:
+        return responses.failure(
+            message="Invalid token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    player = await users_repo.fetch_one(id=token_data["userid"], fetch_all_fields=True)
+
+    if player is None:
+        return responses.failure(
+            message="Player not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
+
+    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):
+        return responses.failure(
+            message="Invalid password.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    player = await users_repo.partial_update(
+        id=token_data["userid"],
+        name=args.new_username,
+    )
+
+    response = Player.from_mapping(player)  # type: ignore
+    return responses.success(response)
+
+
+@router.put("/players/email")
+async def update_player_email(
+    args: UpdatePlayerEmailRequest,
+    user_access_token: str = Cookie(..., alias="X-Bpy-Token", strict=True),
+) -> Success[Player] | Failure:
+    hashed_access_token = hashlib.md5(user_access_token.encode()).hexdigest()
+
+    token_data = await tokens_repo.fetch_one(hashed_access_token)
+    if token_data is None:
+        return responses.failure(
+            message="Invalid token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    player = await users_repo.fetch_one(id=token_data["userid"], fetch_all_fields=True)
+
+    if player is None:
+        return responses.failure(
+            message="Player not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
+
+    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):  # type: ignore
+        return responses.failure(
+            message="Invalid password.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    player = await users_repo.partial_update(
+        id=token_data["userid"],
+        email=args.new_email,
+    )
+
+    response = Player.from_mapping(player)  # type: ignore
+    return responses.success(response)
+
+
+@router.put("/players/password")
+async def update_player_password(
+    args: UpdatePlayerPasswordRequest,
+    user_access_token: str = Cookie(..., alias="X-Bpy-Token", strict=True),
+) -> Success[Player] | Failure:
+    hashed_access_token = hashlib.md5(user_access_token.encode()).hexdigest()
+
+    token_data = await tokens_repo.fetch_one(hashed_access_token)
+    if token_data is None:
+        return responses.failure(
+            message="Invalid token.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    player = await users_repo.fetch_one(id=token_data["userid"], fetch_all_fields=True)
+
+    if player is None:
+        return responses.failure(
+            message="Player not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
+
+    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):  # type: ignore
+        return responses.failure(
+            message="Invalid password.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    new_pw_md5 = hashlib.md5(args.new_password.encode()).hexdigest()
+    new_pw_bcrypt = bcrypt.hashpw(new_pw_md5.encode(), bcrypt.gensalt())
+
+    player = await users_repo.partial_update(
+        id=token_data["userid"],
+        pw_bcrypt=new_pw_bcrypt,
+    )
+
+    response = Player.from_mapping(player)  # type: ignore
+    return responses.success(response)
+
+
 @router.get("/players/{player_id}")
 async def get_player(player_id: int) -> Success[Player] | Failure:
     data = await users_repo.fetch_one(id=player_id)
@@ -186,96 +306,3 @@ async def get_player_stats(
             "page_size": page_size,
         },
     )
-
-
-@router.put("/players/{player_id}/username")
-async def update_player_username(
-    player_id: int,
-    args: UpdatePlayerUsernameRequest,
-) -> Success[Player] | Failure:
-    player = await users_repo.fetch_one(id=player_id, fetch_all_fields=True)
-
-    if player is None:
-        return responses.failure(
-            message="Player not found.",
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
-
-    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):
-        return responses.failure(
-            message="Invalid password.",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    player = await users_repo.partial_update(
-        id=player_id,
-        name=args.new_username,
-    )
-
-    response = Player.from_mapping(player)  # type: ignore
-    return responses.success(response)
-
-
-@router.put("/players/{player_id}/email")
-async def update_player_email(
-    player_id: int,
-    args: UpdatePlayerEmailRequest,
-) -> Success[Player] | Failure:
-    player = await users_repo.fetch_one(id=player_id, fetch_all_fields=True)
-
-    if player is None:
-        return responses.failure(
-            message="Player not found.",
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
-
-    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):  # type: ignore
-        return responses.failure(
-            message="Invalid password.",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    player = await users_repo.partial_update(
-        id=player_id,
-        email=args.new_email,
-    )
-
-    response = Player.from_mapping(player)  # type: ignore
-    return responses.success(response)
-
-
-@router.put("/players/{player_id}/password")
-async def update_player_password(
-    player_id: int,
-    args: UpdatePlayerPasswordRequest,
-) -> Success[Player] | Failure:
-    player = await users_repo.fetch_one(id=player_id, fetch_all_fields=True)
-
-    if player is None:
-        return responses.failure(
-            message="Player not found.",
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
-
-    if not bcrypt.checkpw(pw_md5.encode(), player["pw_bcrypt"].encode()):  # type: ignore
-        return responses.failure(
-            message="Invalid password.",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    new_pw_md5 = hashlib.md5(args.new_password.encode()).hexdigest()
-    new_pw_bcrypt = bcrypt.hashpw(new_pw_md5.encode(), bcrypt.gensalt())
-
-    player = await users_repo.partial_update(
-        id=player_id,
-        pw_bcrypt=new_pw_bcrypt,
-    )
-
-    response = Player.from_mapping(player)  # type: ignore
-    return responses.success(response)
