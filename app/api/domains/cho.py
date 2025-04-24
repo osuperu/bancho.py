@@ -73,7 +73,6 @@ from app.usecases.performance import ScoreParams
 
 OSU_API_V2_CHANGELOG_URL = "https://osu.ppy.sh/api/v2/changelog"
 
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
 DISK_CHAT_LOG_FILE = ".data/logs/chat.log"
 
 BASE_DOMAIN = app.settings.DOMAIN
@@ -1301,7 +1300,9 @@ class SendPrivateMessage(BasePacket):
                             ]
 
                             results = app.usecases.performance.calculate_performances(
-                                osu_file_path=str(BEATMAPS_PATH / f"{bmap.id}.osu"),
+                                osu_file=app.state.services.storage.get_beatmap_file(
+                                    bmap.id,
+                                ),
                                 scores=scores,
                             )
 

@@ -28,8 +28,6 @@ from app.utils import pymysql_encode
 
 # from dataclasses import dataclass
 
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
-
 DEFAULT_LAST_UPDATE = datetime(1970, 1, 1)
 
 IGNORED_BEATMAP_CHARS = dict.fromkeys(map(ord, r':\/*<>?"|'), None)
@@ -78,17 +76,13 @@ def disk_has_expected_osu_file(
     beatmap_id: int,
     expected_md5: str | None = None,
 ) -> bool:
-    osu_file_path = BEATMAPS_PATH / f"{beatmap_id}.osu"
-    file_exists = osu_file_path.exists()
+    file_exists = app.state.services.storage.file_exists(str(beatmap_id), "osu", "osu")
     if file_exists and expected_md5 is not None:
-        osu_file_md5 = hashlib.md5(osu_file_path.read_bytes()).hexdigest()
-        return osu_file_md5 == expected_md5
+        osu_file = app.state.services.storage.get_beatmap_file(beatmap_id)
+        if osu_file is not None:
+            osu_file_md5 = hashlib.md5(osu_file).hexdigest()
+            return osu_file_md5 == expected_md5
     return file_exists
-
-
-def write_osu_file_to_disk(beatmap_id: int, data: bytes) -> None:
-    osu_file_path = BEATMAPS_PATH / f"{beatmap_id}.osu"
-    osu_file_path.write_bytes(data)
 
 
 async def ensure_osu_file_is_available(
@@ -115,7 +109,7 @@ async def ensure_osu_file_is_available(
         log(f"Failed to fetch osu file for {beatmap_id}", Ansi.LRED)
         return False
 
-    write_osu_file_to_disk(beatmap_id, latest_osu_file)
+    app.state.services.storage.upload_beatmap_file(beatmap_id, latest_osu_file)
     return True
 
 

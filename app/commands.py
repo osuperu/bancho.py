@@ -75,9 +75,6 @@ if TYPE_CHECKING:
     from app.objects.channel import Channel
 
 
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
-
-
 @dataclass
 class Context:
     player: Player
@@ -515,7 +512,7 @@ async def _with(ctx: Context) -> str | None:
         msg_fields.append(f"{acc:.2f}%")
 
     result = app.usecases.performance.calculate_performances(
-        osu_file_path=str(BEATMAPS_PATH / f"{bmap.id}.osu"),
+        osu_file=app.state.services.storage.get_beatmap_file(bmap.id),
         scores=[score_args],  # calculate one score
     )
 

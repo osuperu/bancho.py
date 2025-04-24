@@ -14,7 +14,6 @@ from fastapi.param_functions import Query
 from fastapi.security import HTTPBearer
 
 import app.state.sessions
-from app.api.v1.api import AVATARS_PATH
 from app.api.v2.authentication import authenticate_user_session
 from app.api.v2.common import responses
 from app.api.v2.common.responses import Failure
@@ -178,16 +177,8 @@ async def update_player_avatar(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         )
 
-    # Check and remove existing avatar if any
-    for ext in ("jpg", "png"):
-        old_avatar_path = AVATARS_PATH / f"{user['id']}.{ext}"
-        if old_avatar_path.exists():
-            old_avatar_path.unlink()
-            break
-
     ext = "png" if avatar.content_type == "image/png" else "jpg"
-    avatar_file_path = AVATARS_PATH / f"{user['id']}.{ext}"
-    avatar_file_path.write_bytes(avatar_file)
+    app.state.services.storage.upload_avatar(user["id"], ext, avatar_file)
 
     response = Player.from_mapping(user)
     return responses.success(response)

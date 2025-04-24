@@ -32,12 +32,6 @@ from app.repositories import tourney_pools as tourney_pools_repo
 from app.repositories import users as users_repo
 from app.usecases.performance import ScoreParams
 
-AVATARS_PATH = SystemPath.cwd() / ".data/avatars"
-BEATMAPS_PATH = SystemPath.cwd() / ".data/osu"
-REPLAYS_PATH = SystemPath.cwd() / ".data/osr"
-SCREENSHOTS_PATH = SystemPath.cwd() / ".data/ss"
-
-
 router = APIRouter()
 oauth2_scheme = HTTPBearer(auto_error=False)
 
@@ -130,8 +124,8 @@ async def api_calculate_pp(
         )
 
     results = app.usecases.performance.calculate_performances(
-        str(BEATMAPS_PATH / f"{beatmap.id}.osu"),
-        scores,
+        osu_file=app.state.services.storage.get_beatmap_file(beatmap.id),
+        scores=scores,
     )
 
     # "Inject" the accuracy into the list of results
@@ -717,17 +711,15 @@ async def api_get_replay(
     the player's total replay views.
     """
     # fetch replay file & make sure it exists
-    replay_file = REPLAYS_PATH / f"{score_id}.osr"
-    if not replay_file.exists():
+    replay_file = app.state.services.storage.get_replay_file(score_id)
+    if not replay_file:
         return ORJSONResponse(
             {"status": "Replay not found."},
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    # read replay frames from file
-    raw_replay_data = replay_file.read_bytes()
     if not include_headers:
         return Response(
-            bytes(raw_replay_data),
+            replay_file,
             media_type="application/octet-stream",
             headers={
                 "Content-Description": "File Transfer",
@@ -800,8 +792,8 @@ async def api_get_replay(
     timestamp = int(row["play_time"].timestamp() * 1e7)
     replay_data += struct.pack("<q", timestamp + DATETIME_OFFSET)
     # pack the raw replay data into the buffer
-    replay_data += struct.pack("<i", len(raw_replay_data))
-    replay_data += raw_replay_data
+    replay_data += struct.pack("<i", len(replay_file))
+    replay_data += replay_file
     # pack additional info buffer.
     replay_data += struct.pack("<q", score_id)
     # NOTE: target practice sends extra mods, but

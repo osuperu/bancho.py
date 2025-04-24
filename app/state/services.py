@@ -24,6 +24,7 @@ from app._typing import IPAddress
 from app.adapters.database import Database
 from app.logging import Ansi
 from app.logging import log
+from app.storage import Storage
 
 STRANGE_LOG_DIR = Path.cwd() / ".data/logs"
 
@@ -46,7 +47,7 @@ if str(app.settings.DATADOG_API_KEY) and str(app.settings.DATADOG_APP_KEY):
     datadog = datadog_client.ThreadStats()
 
 ip_resolver: IPResolver
-
+storage = Storage()
 """ session usecases """
 
 

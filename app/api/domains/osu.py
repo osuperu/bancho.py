@@ -75,11 +75,6 @@ from app.usecases import user_achievements as user_achievements_usecases
 from app.utils import escape_enum
 from app.utils import pymysql_encode
 
-BEATMAPS_PATH = SystemPath.cwd() / ".data/osu"
-REPLAYS_PATH = SystemPath.cwd() / ".data/osr"
-SCREENSHOTS_PATH = SystemPath.cwd() / ".data/ss"
-
-
 router = APIRouter(
     tags=["osu! web API"],
     default_response_class=Response,
@@ -154,13 +149,16 @@ async def osuScreenshot(
             )
 
         while True:
-            filename = f"{secrets.token_urlsafe(6)}.{extension}"
-            ss_file = SCREENSHOTS_PATH / filename
-            if not ss_file.exists():
+            filename = f"{secrets.token_urlsafe(6)}"
+            ss_file = app.state.services.storage.get_screenshot(filename, extension)
+            if not ss_file:
                 break
 
-        with ss_file.open("wb") as f:
-            f.write(screenshot_view)
+        app.state.services.storage.upload_screenshot(
+            filename,
+            extension,
+            screenshot_view,
+        )
 
     log(f"{player} uploaded {filename}.")
     return Response(filename.encode())
@@ -823,8 +821,7 @@ async def osuSubmitModularSelector(
         MIN_REPLAY_SIZE = 24
 
         if len(replay_data) >= MIN_REPLAY_SIZE:
-            replay_disk_file = REPLAYS_PATH / f"{score.id}.osr"
-            replay_disk_file.write_bytes(replay_data)
+            app.state.services.storage.upload_replay(score.id, replay_data)
         else:
             log(f"{score.player} submitted a score without a replay!", Ansi.LRED)
 
@@ -1088,15 +1085,15 @@ async def getReplay(
     if not score:
         return Response(b"", status_code=404)
 
-    file = REPLAYS_PATH / f"{score_id}.osr"
-    if not file.exists():
+    replay = app.state.services.storage.get_replay_file(score_id)
+    if not replay:
         return Response(b"", status_code=404)
 
     # increment replay views for this score
     if score.player is not None and player.id != score.player.id:
         app.state.loop.create_task(score.increment_replay_views())
 
-    return FileResponse(file)
+    return Response(replay)
 
 
 @router.get("/web/osu-rate.php")
@@ -1599,9 +1596,9 @@ async def get_screenshot(
     extension: Literal["jpg", "jpeg", "png"] = Path(...),
 ) -> Response:
     """Serve a screenshot from the server, by filename."""
-    screenshot_path = SCREENSHOTS_PATH / f"{screenshot_id}.{extension}"
+    screenshot = app.state.services.storage.get_screenshot(screenshot_id, extension)
 
-    if not screenshot_path.exists():
+    if not screenshot:
         return ORJSONResponse(
             content={"status": "Screenshot not found."},
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1614,10 +1611,7 @@ async def get_screenshot(
     else:
         media_type = None
 
-    return FileResponse(
-        path=screenshot_path,
-        media_type=media_type,
-    )
+    return Response(screenshot, media_type=media_type)
 
 
 @router.get("/d/{map_set_id}")
