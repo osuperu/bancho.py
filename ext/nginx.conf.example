@@ -35,7 +35,7 @@ server {
 
 	location / {
 		default_type image/png;
-		root ${DATA_DIRECTORY}/assets;
+		root ${ASSETS_DIRECTORY};
 	}
 }
 
@@ -51,6 +51,10 @@ server {
 
 	location / {
 		root ${DATA_DIRECTORY}/avatars;
-		try_files $uri $uri.png $uri.jpg $uri.gif $uri.jpeg $uri.jfif /default.jpg = 404;
+		try_files $uri $uri.png $uri.jpg $uri.gif $uri.jpeg $uri.jfif /default_avatar.jpg;
+	}
+
+	location = /default_avatar.jpg {
+		alias ${ASSETS_DIRECTORY}/default_avatar.jpg;
 	}
 }

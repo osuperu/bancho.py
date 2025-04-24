@@ -161,7 +161,7 @@ async def osuScreenshot(
         )
 
     log(f"{player} uploaded {filename}.")
-    return Response(filename.encode())
+    return Response(f"{filename}.{extension}".encode())
 
 
 @router.get("/web/osu-getfriends.php")

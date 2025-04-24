@@ -21,6 +21,7 @@ env:
   LOG_WITH_COLORS: "False"
   COMMAND_PREFIX: "!"
   DATA_DIRECTORY: "not relevant"
+  ASSETS_DIRECTORY: "not relevant"
   DB_HOST: "mysql"
   DB_NAME: "bancho"
   DB_PASS: "lol123"
