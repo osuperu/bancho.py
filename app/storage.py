@@ -13,14 +13,14 @@ class Storage:
             with open(f"{DATA_PATH}/{filepath}", "rb") as f:
                 return f.read()
         except Exception as e:
-            log(f'Failed to read file "{filepath}": {e}')
+            log(f'The file "{filepath}" doesn\'t exist', Ansi.YELLOW)
 
     def save_to_file(self, filepath: str, content: bytes) -> bool:
         try:
             with open(f"{DATA_PATH}/{filepath}", "wb") as f:
                 f.write(content)
         except Exception as e:
-            log(f'Failed to save file "{filepath}": {e}')
+            log(f'Failed to save file "{filepath}": {e}', Ansi.LRED)
             return False
 
         return True
@@ -29,7 +29,7 @@ class Storage:
         try:
             os.remove(f"{DATA_PATH}/{filepath}")
         except Exception as e:
-            log(f'Failed to file "{filepath}": "{e}"')
+            log(f'Failed to file "{filepath}": "{e}"', Ansi.LRED)
             return False
 
         return True
