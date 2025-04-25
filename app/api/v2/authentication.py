@@ -257,18 +257,18 @@ async def register(request: Request, args: RegistrationRequest) -> Any:
 
     country = geoloc["country"]["acronym"] if geoloc is not None else "xx"
 
+    if country != "PE":
+        return responses.failure(
+            message="Registration is only available to Peruvian players.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
     user = await users_repo.create(
         name=args.username,
         email=args.email,
         pw_bcrypt=pw_bcrypt,
         country=country,
     )
-
-    if country != "PE":
-        return responses.failure(
-            message="Registration is only available to Peruvian players.",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
 
     await stats_repo.create_all_modes(player_id=user["id"])
 
