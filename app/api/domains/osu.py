@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import random
@@ -13,10 +14,8 @@ from collections.abc import Mapping
 from enum import IntEnum
 from enum import unique
 from functools import cache
-from pathlib import Path as SystemPath
 from typing import Any
 from typing import Literal
-from typing import cast
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 
@@ -32,7 +31,6 @@ from fastapi.param_functions import Header
 from fastapi.param_functions import Path
 from fastapi.param_functions import Query
 from fastapi.requests import Request
-from fastapi.responses import FileResponse
 from fastapi.responses import ORJSONResponse
 from fastapi.responses import RedirectResponse
 from fastapi.responses import Response
@@ -45,6 +43,8 @@ import app.state
 import app.utils
 from app import encryption
 from app._typing import UNSET
+from app.adapters.osu_api_v1 import api_get_replay
+from app.adapters.osu_api_v1 import api_get_scores
 from app.constants import regexes
 from app.constants.clientflags import LastFMFlags
 from app.constants.gamemodes import GameMode
@@ -947,6 +947,7 @@ async def osuSubmitModularSelector(
 
     if not score.player.restricted:
         # enqueue new stats info to all other users
+        await score.player.update_bancho_rank()
         app.state.sessions.players.enqueue(app.packets.user_stats(score.player))
 
         # update beatmap with new stats
@@ -1033,7 +1034,11 @@ async def osuSubmitModularSelector(
             )
 
         overall_ranking_chart_entries = (
-            chart_entry("rank", prev_stats.rank, stats.rank),
+            chart_entry(
+                "rank",
+                prev_stats.bancho_rank if player.show_bancho_lb else prev_stats.rank,
+                stats.bancho_rank if player.show_bancho_lb else stats.rank,
+            ),
             chart_entry("rankedScore", prev_stats.rscore, stats.rscore),
             chart_entry("totalScore", prev_stats.tscore, stats.tscore),
             chart_entry("maxCombo", prev_stats.max_combo, stats.max_combo),
@@ -1082,18 +1087,39 @@ async def getReplay(
     score_id: int = Query(..., alias="c", min=0, max=9_223_372_036_854_775_807),
 ) -> Response:
     score = await Score.from_sql(score_id)
-    if not score:
+
+    if score and score.player is not None and score.player.id == player.id:
+        replay = app.state.services.storage.get_replay_file(score_id)
+        if replay:
+            # we don't need to increment replay views for this score
+            # because it's the player's own replay
+            return Response(replay)
         return Response(b"", status_code=404)
 
-    replay = app.state.services.storage.get_replay_file(score_id)
-    if not replay:
-        return Response(b"", status_code=404)
+    if player.show_bancho_lb:
+        api_data = await api_get_replay(score_id, mode)
+        if api_data["data"]:
+            api_response = api_data["data"]
 
-    # increment replay views for this score
-    if score.player is not None and player.id != score.player.id:
-        app.state.loop.create_task(score.increment_replay_views())
+            if (
+                "error" in api_response
+                and api_response["error"] == "Replay not available."
+            ):
+                return Response(b"", status_code=404)
 
-    return Response(replay)
+            replay = base64.b64decode(api_response["content"])
+            log(f"Successfully got Bancho replay: {replay}")
+            return Response(replay)
+
+    if score:
+        replay = app.state.services.storage.get_replay_file(score_id)
+        if replay:
+            # increment replay views for this score
+            if score.player is not None and player.id != score.player.id:
+                app.state.loop.create_task(score.increment_replay_views())
+            return Response(replay)
+
+    return Response(b"", status_code=404)
 
 
 @router.get("/web/osu-rate.php")
@@ -1145,84 +1171,193 @@ class LeaderboardType(IntEnum):
 
 async def get_leaderboard_scores(
     leaderboard_type: LeaderboardType | int,
-    map_md5: str,
+    map: Beatmap,
     mode: int,
     mods: Mods,
     player: Player,
     scoring_metric: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    query = [
-        f"SELECT s.id, s.{scoring_metric} AS _score, "
-        "s.max_combo, s.n50, s.n100, s.n300, "
-        "s.nmiss, s.nkatu, s.ngeki, s.perfect, s.mods, "
-        "UNIX_TIMESTAMP(s.play_time) time, u.id userid, "
-        "COALESCE(CONCAT('[', c.tag, '] ', u.name), u.name) AS name "
-        "FROM scores s "
-        "INNER JOIN users u ON u.id = s.userid "
-        "LEFT JOIN clans c ON c.id = u.clan_id "
-        "WHERE s.map_md5 = :map_md5 AND s.status = 2 "  # 2: =best score
-        "AND (u.priv & 1 OR u.id = :user_id) AND mode = :mode",
-    ]
+    if player.show_bancho_lb:  # TODO: add a check if mode is relax or autopilot
+        # get bancho scores
+        if leaderboard_type == LeaderboardType.Mods:
+            bancho_scores = (
+                await api_get_scores(scoring_metric, b=map.id, m=mode, mods=mods.value)
+                or []
+            )
+        elif leaderboard_type in [LeaderboardType.Friends, LeaderboardType.Country]:
+            bancho_scores = []
+        else:
+            if (mods.value & Mods.RELAX) or (mods.value & Mods.AUTOPILOT):
+                bancho_scores = []
+            else:
+                bancho_scores = (
+                    await api_get_scores(scoring_metric, b=map.id, m=mode) or []
+                )
 
-    params: dict[str, Any] = {
-        "map_md5": map_md5,
-        "user_id": player.id,
-        "mode": mode,
-    }
+        # get local scores
+        query = [
+            f"SELECT s.id, s.{scoring_metric} AS _score, "
+            "s.max_combo, s.n50, s.n100, s.n300, "
+            "s.nmiss, s.nkatu, s.ngeki, s.perfect, s.mods, "
+            "UNIX_TIMESTAMP(s.play_time) time, u.id userid, "
+            "COALESCE(CONCAT('[', c.tag, '] ', u.name), u.name) AS name "
+            "FROM scores s "
+            "INNER JOIN users u ON u.id = s.userid "
+            "LEFT JOIN clans c ON c.id = u.clan_id "
+            "WHERE s.map_md5 = :map_md5 AND s.status = 2 "  # 2: =best score
+            "AND (u.priv & 1 OR u.id = :user_id) AND mode = :mode",
+        ]
 
-    if leaderboard_type == LeaderboardType.Mods:
-        query.append("AND s.mods = :mods")
-        params["mods"] = mods
-    elif leaderboard_type == LeaderboardType.Friends:
-        query.append("AND s.userid IN :friends")
-        params["friends"] = player.friends | {player.id}
-    elif leaderboard_type == LeaderboardType.Country:
-        query.append("AND u.country = :country")
-        params["country"] = player.geoloc["country"]["acronym"]
+        params: dict[str, Any] = {
+            "map_md5": map.md5,
+            "user_id": player.id,
+            "mode": mode,
+        }
 
-    # TODO: customizability of the number of scores
-    query.append("ORDER BY _score DESC LIMIT 50")
+        if leaderboard_type == LeaderboardType.Mods:
+            query.append("AND s.mods = :mods")
+            params["mods"] = mods
+        elif leaderboard_type == LeaderboardType.Friends:
+            query.append("AND s.userid IN :friends")
+            params["friends"] = player.friends | {player.id}
+        elif leaderboard_type == LeaderboardType.Country:
+            query.append("AND u.country = :country")
+            params["country"] = player.geoloc["country"]["acronym"]
 
-    score_rows = await app.state.services.database.fetch_all(
-        " ".join(query),
-        params,
-    )
+        query.append("ORDER BY _score DESC LIMIT 50")
 
-    if score_rows:  # None or []
+        local_scores = (
+            await app.state.services.database.fetch_all(
+                " ".join(query),
+                params,
+            )
+            or []
+        )
+
+        # merge and sort scores
+        score_rows = sorted(
+            bancho_scores + local_scores,
+            key=lambda x: (-x["_score"], x["time"]),
+        )[:50]
+
         # fetch player's personal best score
+        query = [
+            f"SELECT s.id, s.{scoring_metric} AS _score, "
+            "s.max_combo, s.n50, s.n100, s.n300, "
+            "s.nmiss, s.nkatu, s.ngeki, s.perfect, s.mods, "
+            "UNIX_TIMESTAMP(s.play_time) time, u.id userid, u.name name "
+            "FROM scores s "
+            "INNER JOIN users u ON u.id = s.userid "
+            "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
+            "AND s.userid = :user_id AND s.status = 2",
+        ]
+
+        params: dict[str, Any] = {
+            "map_md5": map.md5,
+            "mode": mode,
+            "user_id": player.id,
+        }
+
+        if leaderboard_type == LeaderboardType.Mods:
+            query.append("AND s.mods = :mods")
+            params["mods"] = mods
+
+        query.append("ORDER BY _score DESC LIMIT 1")
+
         personal_best_score_row = await app.state.services.database.fetch_one(
-            f"SELECT id, {scoring_metric} AS _score, "
-            "max_combo, n50, n100, n300, "
-            "nmiss, nkatu, ngeki, perfect, mods, "
-            "UNIX_TIMESTAMP(play_time) time "
-            "FROM scores "
-            "WHERE map_md5 = :map_md5 AND mode = :mode "
-            "AND userid = :user_id AND status = 2 "
-            "ORDER BY _score DESC LIMIT 1",
-            {"map_md5": map_md5, "mode": mode, "user_id": player.id},
+            " ".join(query),
+            params,
         )
 
         if personal_best_score_row is not None:
-            # calculate the rank of the score.
-            p_best_rank = 1 + await app.state.services.database.fetch_val(
-                "SELECT COUNT(*) FROM scores s "
-                "INNER JOIN users u ON u.id = s.userid "
-                "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
-                "AND s.status = 2 AND u.priv & 1 "
-                f"AND s.{scoring_metric} > :score",
-                {
-                    "map_md5": map_md5,
-                    "mode": mode,
-                    "score": personal_best_score_row["_score"],
-                },
-                column=0,  # COUNT(*)
+            personal_best_score_row["rank"] = 1 + sum(
+                1
+                for score in score_rows
+                if score["_score"] > personal_best_score_row["_score"]
+                or (
+                    score["_score"] == personal_best_score_row["_score"]
+                    and score["time"] < personal_best_score_row["time"]
+                )
             )
 
-            # attach rank to personal best row
-            personal_best_score_row["rank"] = p_best_rank
+            personal_best_score_row.pop("name")
+            personal_best_score_row.pop("userid")
     else:
-        score_rows = []
-        personal_best_score_row = None
+        query = [
+            f"SELECT s.id, s.{scoring_metric} AS _score, "
+            "s.max_combo, s.n50, s.n100, s.n300, "
+            "s.nmiss, s.nkatu, s.ngeki, s.perfect, s.mods, "
+            "UNIX_TIMESTAMP(s.play_time) time, u.id userid, "
+            "COALESCE(CONCAT('[', c.tag, '] ', u.name), u.name) AS name "
+            "FROM scores s "
+            "INNER JOIN users u ON u.id = s.userid "
+            "LEFT JOIN clans c ON c.id = u.clan_id "
+            "WHERE s.map_md5 = :map_md5 AND s.status = 2 "  # 2: =best score
+            "AND (u.priv & 1 OR u.id = :user_id) AND mode = :mode",
+        ]
+
+        params: dict[str, Any] = {
+            "map_md5": map.md5,
+            "user_id": player.id,
+            "mode": mode,
+        }
+
+        if leaderboard_type == LeaderboardType.Mods:
+            query.append("AND s.mods = :mods")
+            params["mods"] = mods
+        elif leaderboard_type == LeaderboardType.Friends:
+            query.append("AND s.userid IN :friends")
+            params["friends"] = player.friends | {player.id}
+        elif leaderboard_type == LeaderboardType.Country:
+            query.append("AND u.country = :country")
+            params["country"] = player.geoloc["country"]["acronym"]
+
+        # TODO: customizability of the number of scores
+        query.append("ORDER BY _score DESC LIMIT 50")
+
+        score_rows = (
+            await app.state.services.database.fetch_all(
+                " ".join(query),
+                params,
+            )
+            or []
+        )
+
+        if score_rows:  # None or []
+            # fetch player's personal best score
+            personal_best_score_row = await app.state.services.database.fetch_one(
+                f"SELECT id, {scoring_metric} AS _score, "
+                "max_combo, n50, n100, n300, "
+                "nmiss, nkatu, ngeki, perfect, mods, "
+                "UNIX_TIMESTAMP(play_time) time "
+                "FROM scores "
+                "WHERE map_md5 = :map_md5 AND mode = :mode "
+                "AND userid = :user_id AND status = 2 "
+                "ORDER BY _score DESC LIMIT 1",
+                {"map_md5": map.md5, "mode": mode, "user_id": player.id},
+            )
+
+            if personal_best_score_row is not None:
+                # calculate the rank of the score.
+                p_best_rank = 1 + await app.state.services.database.fetch_val(
+                    "SELECT COUNT(*) FROM scores s "
+                    "INNER JOIN users u ON u.id = s.userid "
+                    "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
+                    "AND s.status = 2 AND u.priv & 1 "
+                    f"AND s.{scoring_metric} > :score",
+                    {
+                        "map_md5": map.md5,
+                        "mode": mode,
+                        "score": personal_best_score_row["_score"],
+                    },
+                    column=0,  # COUNT(*)
+                )
+
+                # attach rank to personal best row
+                personal_best_score_row["rank"] = p_best_rank
+        else:
+            score_rows = []
+            personal_best_score_row = None
 
     return score_rows, personal_best_score_row
 
@@ -1343,7 +1478,7 @@ async def getScores(
     if not requesting_from_editor_song_select:
         score_rows, personal_best_score_row = await get_leaderboard_scores(
             leaderboard_type,
-            bmap.md5,
+            bmap,
             mode,
             mods,
             player,

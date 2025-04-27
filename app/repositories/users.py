@@ -56,6 +56,7 @@ class UsersTable(Base):
         nullable=False,
         server_default="score",
     )
+    show_bancho_lb = Column(TINYINT(1), nullable=False, server_default="0")
 
     __table_args__ = (
         Index("users_priv_index", priv),
@@ -87,6 +88,7 @@ READ_PARAMS = (
     UsersTable.custom_badge_icon,
     UsersTable.userpage_content,
     UsersTable.lb_preference,
+    UsersTable.show_bancho_lb,
 )
 
 
@@ -110,6 +112,7 @@ class User(TypedDict):
     userpage_content: str | None
     api_key: str | None
     lb_preference: LeaderboardPreference
+    show_bancho_lb: bool
 
 
 async def create(
@@ -242,6 +245,7 @@ async def partial_update(
     userpage_content: str | None | _UnsetSentinel = UNSET,
     api_key: str | None | _UnsetSentinel = UNSET,
     lb_preference: LeaderboardPreference | _UnsetSentinel = UNSET,
+    show_bancho_lb: bool | _UnsetSentinel = UNSET,
 ) -> User | None:
     """Update a user in the database."""
     update_stmt = update(UsersTable).where(UsersTable.id == id)
@@ -281,6 +285,8 @@ async def partial_update(
         update_stmt = update_stmt.values(api_key=api_key)
     if not isinstance(lb_preference, _UnsetSentinel):
         update_stmt = update_stmt.values(lb_preference=lb_preference)
+    if not isinstance(show_bancho_lb, _UnsetSentinel):
+        update_stmt = update_stmt.values(show_bancho_lb=show_bancho_lb)
 
     await app.state.services.database.execute(update_stmt)
 

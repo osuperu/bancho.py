@@ -588,6 +588,25 @@ async def leaderboard(ctx: Context) -> str | None:
     return None
 
 
+@command(Privileges.UNRESTRICTED)
+async def bancho(ctx: Context) -> str | None:
+    """Switches the leaderboard display between bancho and bancho.py."""
+    if len(ctx.args) < 1 or ctx.args[0] not in ("on", "off"):
+        return "Invalid syntax: !bancho <on/off>"
+
+    await users_repo.partial_update(
+        id=ctx.player.id,
+        show_bancho_lb=True if ctx.args[0] == "on" else False,
+    )
+
+    ctx.player.enqueue(
+        app.packets.notification(f"Bancho leaderboard {ctx.args[0]}!"),
+    )
+    ctx.player.logout()
+
+    return None
+
+
 """ Nominator commands
 # The commands below allow users to
 # manage  the server's state of beatmaps.

@@ -26,6 +26,7 @@ T = TypeVar("T")
 
 
 DATA_PATH = Path.cwd() / ".data"
+ASSETS_PATH = Path.cwd() / "assets"
 
 
 def make_safe_name(name: str) -> str:

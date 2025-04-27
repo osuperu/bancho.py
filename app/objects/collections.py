@@ -228,6 +228,7 @@ class Players(list[Player]):
             donor_end=player["donor_end"],
             api_key=player["api_key"],
             lb_preference=player["lb_preference"],
+            show_bancho_lb=player["show_bancho_lb"] == 1,
         )
 
     async def from_cache_or_sql(
@@ -306,6 +307,7 @@ async def initialize_ram_caches() -> None:
         login_time=float(0x7FFFFFFF),  # (never auto-dc)
         is_bot_client=True,
         lb_preference=users_repo.LeaderboardPreference.SCORE,
+        show_bancho_lb=False,
     )
     app.state.sessions.players.append(app.state.sessions.bot)
 

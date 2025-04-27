@@ -492,3 +492,6 @@ create table tokens
 
 # v5.2.4
 alter table users add lb_preference enum('pp', 'score') default 'score' not null;
+
+# v5.2.5
+alter table users add show_bancho_lb tinyint(1) default 0 not null;

@@ -10,16 +10,14 @@ from enum import StrEnum
 from enum import unique
 from functools import cached_property
 from typing import TYPE_CHECKING
-from typing import Literal
 from typing import TypedDict
 from typing import cast
-
-import databases.core
 
 import app.packets
 import app.settings
 import app.state
 from app._typing import IPAddress
+from app.adapters.osu_daily_api import get_closest_rank
 from app.constants.gamemodes import GameMode
 from app.constants.mods import Mods
 from app.constants.privileges import ClientPrivileges
@@ -35,7 +33,6 @@ from app.objects.match import Slot
 from app.objects.match import SlotStatus
 from app.objects.score import Grade
 from app.objects.score import Score
-from app.repositories import clans as clans_repo
 from app.repositories import logs as logs_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
@@ -94,6 +91,7 @@ class ModeData:
     max_combo: int
     total_hits: int
     rank: int  # global
+    bancho_rank: int  # bancho leaderboard
 
     grades: dict[Grade, int]  # XH, X, SH, S, A
 
@@ -216,6 +214,7 @@ class Player:
         pw_bcrypt: bytes | None,
         token: str,
         lb_preference: users_repo.LeaderboardPreference,
+        show_bancho_lb: bool = False,
         clan_id: int | None = None,
         clan_priv: ClanPrivileges | None = None,
         geoloc: Geolocation | None = None,
@@ -255,6 +254,7 @@ class Player:
         self.is_tourney_client = is_tourney_client
         self.api_key = api_key
         self.lb_preference = lb_preference
+        self.show_bancho_lb = show_bancho_lb
 
         # avoid enqueuing packets to bot accounts.
         if self.is_bot_client:
@@ -920,6 +920,17 @@ class Player:
         )
         return cast(int, rank) + 1 if rank is not None else 0
 
+    async def get_global_bancho_rank(self, mode: GameMode) -> int:
+        if self.restricted:
+            return 0
+
+        response = await get_closest_rank(self.stats[mode].pp, mode)
+
+        if response["data"] is None:
+            return 0
+
+        return int(response["data"]["rank"])
+
     async def get_country_rank(self, mode: GameMode) -> int:
         if self.restricted:
             return 0
@@ -965,6 +976,7 @@ class Player:
                 max_combo=row["max_combo"],
                 total_hits=row["total_hits"],
                 rank=await self.get_global_rank(game_mode),
+                bancho_rank=0,  # initialize bancho rank
                 grades={
                     Grade.XH: row["xh_count"],
                     Grade.X: row["x_count"],
@@ -973,6 +985,15 @@ class Player:
                     Grade.A: row["a_count"],
                 },
             )
+
+    async def update_bancho_rank(self) -> None:
+        for mode in (
+            GameMode.VANILLA_OSU,
+            GameMode.VANILLA_TAIKO,
+            GameMode.VANILLA_CATCH,
+            GameMode.VANILLA_MANIA,
+        ):
+            self.stats[mode].bancho_rank = await self.get_global_bancho_rank(mode)
 
     def update_latest_activity_soon(self) -> None:
         """Update the player's latest activity in the database."""

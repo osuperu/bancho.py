@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 
+import app.settings
 from app.logging import Ansi
 from app.logging import log
+from app.utils import ASSETS_PATH
 from app.utils import DATA_PATH
 
 
@@ -11,6 +13,13 @@ class Storage:
     def get_file_content(self, filepath: str) -> bytes | None:
         try:
             with open(f"{DATA_PATH}/{filepath}", "rb") as f:
+                return f.read()
+        except Exception as e:
+            log(f'The file "{filepath}" doesn\'t exist', Ansi.YELLOW)
+
+    def get_file_content_2(self, filepath: str) -> bytes | None:
+        try:
+            with open(f"{ASSETS_PATH}/{filepath}", "rb") as f:
                 return f.read()
         except Exception as e:
             log(f'The file "{filepath}" doesn\'t exist', Ansi.YELLOW)
@@ -40,6 +49,9 @@ class Storage:
     def get(self, key: str, extension: str, bucket: str) -> bytes | None:
         return self.get_file_content(f"{bucket}/{key}.{extension}")
 
+    def get_2(self, key: str, extension: str, bucket: str) -> bytes | None:
+        return self.get_file_content_2(f"{bucket}/{key}.{extension}")
+
     def save(self, key: str, extension: str, content: bytes, bucket: str) -> bool:
         return self.save_to_file(f"{bucket}/{key}.{extension}", content)
 
@@ -54,6 +66,15 @@ class Storage:
 
     def get_screenshot(self, id: str, extension: str) -> bytes | None:
         return self.get(id, extension, "ss")
+
+    def get_avatar(self, id: str, extension: str) -> bytes | None:
+        return self.get(id, extension, "avatars")
+
+    def get_default_avatar(self) -> bytes | None:
+        return self.get_2("default_avatar", "jpg", "avatar")
+
+    def get_bancho_default_avatar(self) -> bytes | None:
+        return self.get_2("bancho_default_avatar", "png", "avatar")
 
     def upload_replay(self, id: int, content: bytes):
         self.save(str(id), "osr", content, "osr")

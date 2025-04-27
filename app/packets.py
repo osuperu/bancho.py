@@ -896,7 +896,10 @@ def user_stats(player: Player) -> bytes:
         (gm_stats.acc / 100.0, osuTypes.f32),
         (gm_stats.plays, osuTypes.i32),
         (gm_stats.tscore, osuTypes.i64),
-        (gm_stats.rank, osuTypes.i32),
+        (
+            gm_stats.bancho_rank if player.show_bancho_lb else gm_stats.rank,
+            osuTypes.i32,
+        ),
         (pp, osuTypes.u16),
     )
 

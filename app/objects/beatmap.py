@@ -8,17 +8,15 @@ from datetime import datetime
 from datetime import timedelta
 from enum import IntEnum
 from enum import unique
-from pathlib import Path
 from typing import Any
-from typing import TypedDict
 
 import httpx
-from tenacity import retry
-from tenacity.stop import stop_after_attempt
 
 import app.settings
 import app.state
 import app.utils
+from app.adapters.osu_api_v1 import api_get_beatmaps
+from app.adapters.osu_api_v1 import api_get_osu_file
 from app.constants.gamemodes import GameMode
 from app.logging import Ansi
 from app.logging import log
@@ -31,45 +29,6 @@ from app.utils import pymysql_encode
 DEFAULT_LAST_UPDATE = datetime(1970, 1, 1)
 
 IGNORED_BEATMAP_CHARS = dict.fromkeys(map(ord, r':\/*<>?"|'), None)
-
-
-class BeatmapApiResponse(TypedDict):
-    data: list[dict[str, Any]] | None
-    status_code: int
-
-
-@retry(reraise=True, stop=stop_after_attempt(3))
-async def api_get_beatmaps(**params: Any) -> BeatmapApiResponse:
-    """\
-    Fetch data from the osu!api with a beatmap's md5.
-
-    Optionally use osu.direct's API if the user has not provided an osu! api key.
-    """
-    if app.settings.DEBUG:
-        log(f"Doing api (getbeatmaps) request {params}", Ansi.LMAGENTA)
-
-    if app.settings.OSU_API_KEY:
-        # https://github.com/ppy/osu-api/wiki#apiget_beatmaps
-        url = "https://old.ppy.sh/api/get_beatmaps"
-        params["k"] = str(app.settings.OSU_API_KEY)
-    else:
-        # https://osu.direct/doc
-        url = "https://osu.direct/api/get_beatmaps"
-
-    response = await app.state.services.http_client.get(url, params=params)
-    response_data = response.json()
-    if response.status_code == 200 and response_data:  # (data may be [])
-        return {"data": response_data, "status_code": response.status_code}
-
-    return {"data": None, "status_code": response.status_code}
-
-
-@retry(reraise=True, stop=stop_after_attempt(3))
-async def api_get_osu_file(beatmap_id: int) -> bytes:
-    url = f"https://old.ppy.sh/osu/{beatmap_id}"
-    response = await app.state.services.http_client.get(url)
-    response.raise_for_status()
-    return response.read()
 
 
 def disk_has_expected_osu_file(
