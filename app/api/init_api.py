@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import aiosu
 import starlette.routing
 from fastapi import FastAPI
 from fastapi import status
@@ -85,6 +86,16 @@ async def lifespan(asgi_app: BanchoAPI) -> AsyncIterator[None]:
     await app.state.services.database.connect()
     await app.state.services.redis.initialize()
 
+    app.state.services.osu_api_v1 = aiosu.v1.Client(
+        token=app.settings.OSU_API_KEY,
+    )
+
+    app.state.services.osu_api_v2 = aiosu.v2.Client(
+        client_id=app.settings.OSU_API_CLIENT_ID,
+        client_secret=app.settings.OSU_API_CLIENT_SECRET,
+        token=aiosu.models.OAuthToken(),
+    )
+
     if app.state.services.datadog is not None:
         app.state.services.datadog.start(
             flush_in_thread=True,
@@ -117,6 +128,11 @@ async def lifespan(asgi_app: BanchoAPI) -> AsyncIterator[None]:
     await app.state.services.http_client.aclose()
     await app.state.services.database.disconnect()
     await app.state.services.redis.aclose()
+
+    await app.state.services.osu_api_v1.aclose()
+    del app.state.services.osu_api_v1
+    await app.state.services.osu_api_v2.aclose()
+    del app.state.services.osu_api_v2
 
     if app.state.services.datadog is not None:
         app.state.services.datadog.stop()

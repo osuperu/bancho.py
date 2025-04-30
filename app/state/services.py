@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import TypedDict
 
+import aiosu
 import datadog as datadog_module
 import datadog.threadstats.base as datadog_client
 import httpx
@@ -37,7 +38,8 @@ SQL_UPDATES_FILE = Path.cwd() / "migrations/migrations.sql"
 http_client = httpx.AsyncClient()
 database = Database(app.settings.DB_DSN)
 redis: aioredis.Redis = aioredis.from_url(app.settings.REDIS_DSN)
-
+osu_api_v1: aiosu.v1.Client
+osu_api_v2: aiosu.v2.Client
 datadog: datadog_client.ThreadStats | None = None
 if str(app.settings.DATADOG_API_KEY) and str(app.settings.DATADOG_APP_KEY):
     datadog_module.initialize(

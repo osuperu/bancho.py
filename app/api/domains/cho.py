@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
 import re
 import struct
 import time
@@ -12,14 +11,11 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from datetime import date
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 from typing import TypedDict
-from typing import cast
 from zoneinfo import ZoneInfo
 
 import bcrypt
-import databases.core
 from fastapi import APIRouter
 from fastapi import Response
 from fastapi.param_functions import Header
@@ -1638,6 +1634,8 @@ class MatchChangeSettings(BasePacket):
             bmap = await Beatmap.from_md5(self.match_data.map_md5)
 
             if bmap:
+                assert bmap.md5 is not None
+
                 player.match.map_id = bmap.id
                 player.match.map_md5 = bmap.md5
                 player.match.map_name = bmap.full_name

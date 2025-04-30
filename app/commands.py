@@ -1554,6 +1554,8 @@ async def mp_map(ctx: Context, match: Match) -> str | None:
     if not bmap:
         return "Beatmap not found."
 
+    assert bmap.md5 is not None
+
     match.map_id = bmap.id
     match.map_md5 = bmap.md5
     match.map_name = bmap.full_name
@@ -2096,6 +2098,8 @@ async def mp_pick(ctx: Context, match: Match) -> str | None:
     bmap = await Beatmap.from_bid(map_pick["map_id"])
     if not bmap:
         return f"Found no beatmap for {mods_slot} pick."
+
+    assert bmap.md5 is not None
 
     match.map_md5 = bmap.md5
     match.map_id = bmap.id
