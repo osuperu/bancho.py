@@ -451,10 +451,7 @@ class Beatmap:
         """Change internal data with the data in osu!api format."""
         # NOTE: `self` is not guaranteed to have any attributes
         #       initialized when this is called.
-        # log(f"beatmap: {beatmap}")
-        # log("==============================================")
-        # log(f"Beatmap.beatmapset: {beatmap.beatmapset}")
-        # log(f"beatmapset: {beatmapset}")
+        assert beatmap.checksum is not None
         self.md5 = beatmap.checksum
         # self.id = int(osuapi_resp['beatmap_id'])
         self.set_id = beatmap.beatmapset_id
@@ -497,6 +494,11 @@ class Beatmap:
             self.bpm = beatmap.bpm
         else:
             self.bpm = 0.0
+
+        assert beatmap.cs is not None
+        assert beatmap.accuracy is not None
+        assert beatmap.ar is not None
+        assert beatmap.drain is not None
 
         self.cs = beatmap.cs
         self.od = beatmap.accuracy

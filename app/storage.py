@@ -16,6 +16,7 @@ class Storage:
                 return f.read()
         except Exception as e:
             log(f'The file "{filepath}" doesn\'t exist', Ansi.YELLOW)
+            return None
 
     def get_file_content_2(self, filepath: str) -> bytes | None:
         try:
@@ -23,6 +24,7 @@ class Storage:
                 return f.read()
         except Exception as e:
             log(f'The file "{filepath}" doesn\'t exist', Ansi.YELLOW)
+            return None
 
     def save_to_file(self, filepath: str, content: bytes) -> bool:
         try:
@@ -76,18 +78,18 @@ class Storage:
     def get_bancho_default_avatar(self) -> bytes | None:
         return self.get_2("bancho_default_avatar", "png", "avatar")
 
-    def upload_replay(self, id: int, content: bytes):
-        self.save(str(id), "osr", content, "osr")
+    def upload_replay(self, id: int, content: bytes) -> bool:
+        return self.save(str(id), "osr", content, "osr")
 
-    def upload_avatar(self, id: int, extension: str, content: bytes):
+    def upload_avatar(self, id: int, extension: str, content: bytes) -> bool:
         self.remove_avatar(id)
-        self.save(str(id), extension, content, "avatars")
+        return self.save(str(id), extension, content, "avatars")
 
-    def upload_beatmap_file(self, id: int, content: bytes):
-        self.save(str(id), "osu", content, "osu")
+    def upload_beatmap_file(self, id: int, content: bytes) -> bool:
+        return self.save(str(id), "osu", content, "osu")
 
-    def upload_screenshot(self, id: str, extension: str, content: bytes):
-        self.save(id, extension, content, "ss")
+    def upload_screenshot(self, id: str, extension: str, content: bytes) -> bool:
+        return self.save(id, extension, content, "ss")
 
     def remove_avatar(self, id: int) -> None:
         log(f"Removing avatar for user {id}", Ansi.GREEN)

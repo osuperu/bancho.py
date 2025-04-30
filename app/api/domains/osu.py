@@ -1104,7 +1104,6 @@ async def getReplay(
             return Response(b"", status_code=404)
         else:
             replay = base64.b64decode(replay_data.content)
-            log(f"Successfully got Bancho replay: {replay}")
             return Response(replay)
 
     if score:
@@ -1303,18 +1302,20 @@ async def calculate_rank_from_local_scores(
     scoring_metric: str,
     score: float,
 ) -> int:
-    return 1 + await app.state.services.database.fetch_val(
-        "SELECT COUNT(*) FROM scores s "
-        "INNER JOIN users u ON u.id = s.userid "
-        "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
-        "AND s.status = 2 AND u.priv & 1 "
-        f"AND s.{scoring_metric} > :score",
-        {
-            "map_md5": map.md5,
-            "mode": mode,
-            "score": score,
-        },
-        column=0,  # COUNT(*)
+    return 1 + int(
+        await app.state.services.database.fetch_val(
+            "SELECT COUNT(*) FROM scores s "
+            "INNER JOIN users u ON u.id = s.userid "
+            "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
+            "AND s.status = 2 AND u.priv & 1 "
+            f"AND s.{scoring_metric} > :score",
+            {
+                "map_md5": map.md5,
+                "mode": mode,
+                "score": score,
+            },
+            column=0,  # COUNT(*)
+        ),
     )
 
 

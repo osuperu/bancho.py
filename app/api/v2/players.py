@@ -126,7 +126,13 @@ async def update_player_username(
         name=args.new_username,
     )
 
-    response = Player.from_mapping(updated_user)  # type: ignore
+    if updated_user is None:
+        return responses.failure(
+            message="Failed to update username.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    response = Player.from_mapping(updated_user)
     return responses.success(response)
 
 
@@ -140,7 +146,7 @@ async def update_player_email(
 
     pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
 
-    if not bcrypt.checkpw(pw_md5.encode(), user["pw_bcrypt"].encode()):  # type: ignore
+    if not bcrypt.checkpw(pw_md5.encode(), user["pw_bcrypt"].encode()):
         return responses.failure(
             message="Invalid password.",
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -151,7 +157,13 @@ async def update_player_email(
         email=args.new_email,
     )
 
-    response = Player.from_mapping(updated_user)  # type: ignore
+    if updated_user is None:
+        return responses.failure(
+            message="Failed to update email.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    response = Player.from_mapping(updated_user)
     return responses.success(response)
 
 
@@ -194,7 +206,7 @@ async def update_player_password(
 
     pw_md5 = hashlib.md5(args.current_password.encode()).hexdigest()
 
-    if not bcrypt.checkpw(pw_md5.encode(), user["pw_bcrypt"].encode()):  # type: ignore
+    if not bcrypt.checkpw(pw_md5.encode(), user["pw_bcrypt"].encode()):
         return responses.failure(
             message="Invalid password.",
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -208,7 +220,13 @@ async def update_player_password(
         pw_bcrypt=new_pw_bcrypt,
     )
 
-    response = Player.from_mapping(updated_user)  # type: ignore
+    if updated_user is None:
+        return responses.failure(
+            message="Failed to update password.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    response = Player.from_mapping(updated_user)
     return responses.success(response)
 
 

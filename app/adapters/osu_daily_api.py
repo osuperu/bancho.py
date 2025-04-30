@@ -1,6 +1,7 @@
 # https://osudaily.net/api.php
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 from typing import TypedDict
 
@@ -27,7 +28,12 @@ async def get_closest_rank(pp: float, mode: GameMode) -> ClosestRankApiResponse:
         log(f"Doing api (pp) request for {pp} pp and mode {mode}", Ansi.LMAGENTA)
 
     url = "https://osudaily.net/api/pp.php"
-    params = {"k": app.settings.OSU_DAILY_API_KEY, "t": "pp", "v": pp, "m": mode}
+    params: Mapping[str, str | float | int] = {
+        "k": app.settings.OSU_DAILY_API_KEY,
+        "t": "pp",
+        "v": pp,
+        "m": mode,
+    }
 
     response = await app.state.services.http_client.get(url, params=params)
 
