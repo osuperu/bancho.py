@@ -10,8 +10,8 @@ docker-run:
 docker-run-bg:
 	docker compose up -d bancho mysql redis
 
-run: # TODO: Use scripts/start_server.sh and load .env variables
-	poetry run python main.py
+run:
+	poetry run scripts/start_server.sh
 
 run-caddy:
 	caddy run --envfile .env --config ext/Caddyfile
