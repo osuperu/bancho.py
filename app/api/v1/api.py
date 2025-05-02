@@ -35,9 +35,8 @@ from app.usecases.performance import ScoreParams
 router = APIRouter()
 http_bearer_scheme = HTTPBearer(auto_error=False)
 
-# NOTE: the api is still under design and is subject to change.
-# to keep up with breaking changes, please either join our discord,
-# or keep up with changes to https://github.com/JKBGL/gulag-api-docs.
+# NOTE: The V1 APIs should not be used if a V2 API is available.
+#       These APIs may be deprecated in the future.
 
 # Unauthorized (no api key required)
 # GET /search_players: returns a list of matching users, based on a passed string, sorted by ascending ID.
