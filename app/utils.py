@@ -34,10 +34,6 @@ def make_safe_name(name: str) -> str:
     return name.lower().replace(" ", "_")
 
 
-def determine_highest_ranking_clan_member(members: list[User]) -> User:
-    return next(iter(sorted(members, key=lambda m: m["clan_priv"], reverse=True)))
-
-
 def has_internet_connectivity(timeout: float = 1.0) -> bool:
     """Check for an active internet connection."""
     COMMON_DNS_SERVERS = (
