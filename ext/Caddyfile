@@ -6,7 +6,7 @@
 # 	local_certs
 # }
 
-c.{$DOMAIN}, ce.{$DOMAIN}, c4.{$DOMAIN}, osu.{$DOMAIN}, b.{$DOMAIN}, api.{$DOMAIN} {
+c.{$DOMAIN}, ce.{$DOMAIN}, c4.{$DOMAIN}, osu.{$DOMAIN}, b.{$DOMAIN}, api.{$DOMAIN}, a.{$DOMAIN} {
 	encode gzip
 	reverse_proxy * 127.0.0.1:{$APP_PORT} {
 		header_up X-Real-IP {remote_host}
@@ -19,12 +19,6 @@ c.{$DOMAIN}, ce.{$DOMAIN}, c4.{$DOMAIN}, osu.{$DOMAIN}, b.{$DOMAIN}, api.{$DOMAI
 
 assets.{$DOMAIN} {
 	encode gzip
-	root * {$DATA_DIRECTORY}/assets
+	root * {$ASSETS_DIRECTORY}
 	file_server
-}
-
-a.{$DOMAIN} {
-	encode gzip
-	root * {$DATA_DIRECTORY}/avatars
-	try_files {path} {file.base}.png {file.base}.jpg {file.base}.gif {file.base}.jpeg {file.base}.jfif default.jpg =404
 }

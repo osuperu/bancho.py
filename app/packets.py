@@ -44,6 +44,8 @@ if TYPE_CHECKING:
 
 @unique
 class ClientPackets(IntEnum):
+    UNKNOWN_PACKET = -1  # unmapped
+
     CHANGE_ACTION = 0
     SEND_PUBLIC_MESSAGE = 1
     LOGOUT = 2
@@ -335,6 +337,8 @@ class BanchoPacketReader:
     def __next__(self) -> BasePacket:
         # do not break until we've read the
         # header of a packet we can handle.
+        p_type = ClientPackets.UNKNOWN_PACKET
+        p_len = 0
         while self.body_view:  # len(self.view) < 7?
             p_type, p_len = self._read_header()
 
@@ -896,7 +900,10 @@ def user_stats(player: Player) -> bytes:
         (gm_stats.acc / 100.0, osuTypes.f32),
         (gm_stats.plays, osuTypes.i32),
         (gm_stats.tscore, osuTypes.i64),
-        (gm_stats.rank, osuTypes.i32),
+        (
+            gm_stats.bancho_rank if player.show_bancho_lb else gm_stats.rank,
+            osuTypes.i32,
+        ),
         (pp, osuTypes.u16),
     )
 

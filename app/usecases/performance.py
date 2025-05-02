@@ -60,7 +60,7 @@ class PerformanceResult(TypedDict):
 
 
 def calculate_performances(
-    osu_file_path: str,
+    osu_file: bytes | None,
     scores: Iterable[ScoreParams],
 ) -> list[PerformanceResult]:
     """\
@@ -72,7 +72,10 @@ def calculate_performances(
     implemented here to handle cases where e.g. the beatmap file is invalid
     or there an issue during calculation.
     """
-    calc_bmap = Beatmap(path=osu_file_path)
+    if not osu_file:
+        return []
+
+    calc_bmap = Beatmap(content=osu_file)
 
     results: list[PerformanceResult] = []
 

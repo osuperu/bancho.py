@@ -15,19 +15,15 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from datetime import timedelta
 from functools import wraps
-from pathlib import Path
 from time import perf_counter_ns as clock_ns
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Literal
 from typing import NamedTuple
 from typing import NoReturn
 from typing import Optional
 from typing import TypedDict
-from typing import cast
 from urllib.parse import urlparse
 
 import cpuinfo
@@ -73,9 +69,6 @@ from app.usecases.performance import ScoreParams
 
 if TYPE_CHECKING:
     from app.objects.channel import Channel
-
-
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
 
 
 @dataclass
@@ -430,7 +423,10 @@ def parse__with__command_args(
         return ParsingError("Invalid syntax: !with <acc/nmiss/combo/mods ...>")
 
     # !with 95% 1m 429x hddt
-    acc = mods = combo = nmiss = None
+    combo: int | None = None
+    nmiss: int | None = None
+    mods: Mods | None = None
+    acc: float | None = None
 
     # parse acc, misses, combo and mods from arguments.
     # tried to balance complexity vs correctness here
@@ -515,7 +511,7 @@ async def _with(ctx: Context) -> str | None:
         msg_fields.append(f"{acc:.2f}%")
 
     result = app.usecases.performance.calculate_performances(
-        osu_file_path=str(BEATMAPS_PATH / f"{bmap.id}.osu"),
+        osu_file=app.state.services.storage.get_beatmap_file(bmap.id),
         scores=[score_args],  # calculate one score
     )
 
@@ -585,6 +581,25 @@ async def leaderboard(ctx: Context) -> str | None:
 
     ctx.player.enqueue(
         app.packets.notification(f"Leaderboard display mode set to {ctx.args[0]}!"),
+    )
+    ctx.player.logout()
+
+    return None
+
+
+@command(Privileges.UNRESTRICTED)
+async def bancho(ctx: Context) -> str | None:
+    """Switches the leaderboard display between bancho and bancho.py."""
+    if len(ctx.args) < 1 or ctx.args[0] not in ("on", "off"):
+        return "Invalid syntax: !bancho <on/off>"
+
+    await users_repo.partial_update(
+        id=ctx.player.id,
+        show_bancho_lb=True if ctx.args[0] == "on" else False,
+    )
+
+    ctx.player.enqueue(
+        app.packets.notification(f"Bancho leaderboard {ctx.args[0]}!"),
     )
     ctx.player.logout()
 
@@ -690,7 +705,7 @@ async def _map(ctx: Context) -> str | None:
                     player=ctx.player,
                 )
                 webhook = Webhook(webhook_url, embeds=[embed])
-                asyncio.create_task(webhook.post())
+                asyncio.create_task(webhook.post())  # type: ignore[unused-awaitable]
 
             # select all map ids for clearing map requests.
             modified_beatmap_ids = [
@@ -717,7 +732,7 @@ async def _map(ctx: Context) -> str | None:
                         player=ctx.player,
                     )
                     webhook = Webhook(webhook_url, embeds=[embed])
-                    asyncio.create_task(webhook.post())
+                    asyncio.create_task(webhook.post())  # type: ignore[unused-awaitable]
 
             modified_beatmap_ids = [bmap.id]
 
@@ -922,7 +937,7 @@ async def user(ctx: Context) -> str | None:
             f'[{"Bot" if player.is_bot_client else "Player"}] {display_name} ({player.id})',
             f"Privileges: {priv_list}",
             f"Donator: {donator_info}",
-            f"Channels: {[c._name for c in player.channels]}",
+            f"Channels: {[c.real_name for c in player.channels]}",
             f"Logged in: {timeago.format(player.login_time)}",
             f"Last server interaction: {timeago.format(player.last_recv_time)}",
             f"osu! build: {osu_version} | Tourney: {player.is_tourney_client}",
@@ -1538,6 +1553,8 @@ async def mp_map(ctx: Context, match: Match) -> str | None:
     if not bmap:
         return "Beatmap not found."
 
+    assert bmap.md5 is not None
+
     match.map_id = bmap.id
     match.map_md5 = bmap.md5
     match.map_name = bmap.full_name
@@ -1684,7 +1701,7 @@ async def mp_addref(ctx: Context, match: Match) -> str | None:
     if target in match.refs:
         return f"{target} is already a match referee!"
 
-    match._refs.add(target)
+    match.referees.add(target)
     return f"{target.name} added to match referees."
 
 
@@ -1705,7 +1722,7 @@ async def mp_rmref(ctx: Context, match: Match) -> str | None:
     if target is match.host:
         return "The host is always a referee!"
 
-    match._refs.remove(target)
+    match.referees.remove(target)
     return f"{target.name} removed from match referees."
 
 
@@ -2080,6 +2097,8 @@ async def mp_pick(ctx: Context, match: Match) -> str | None:
     bmap = await Beatmap.from_bid(map_pick["map_id"])
     if not bmap:
         return f"Found no beatmap for {mods_slot} pick."
+
+    assert bmap.md5 is not None
 
     match.map_md5 = bmap.md5
     match.map_id = bmap.id
@@ -2532,6 +2551,7 @@ async def process_commands(
     trigger = trigger.lower()
 
     # check if any command sets match.
+    commands: list[Command] = []
     for cmd_set in command_sets:
         if trigger == cmd_set.trigger:
             if not args:

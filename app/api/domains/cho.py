@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import logging
 import re
 import struct
 import time
@@ -12,14 +11,11 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from datetime import date
 from datetime import datetime
-from pathlib import Path
 from typing import Literal
 from typing import TypedDict
-from typing import cast
 from zoneinfo import ZoneInfo
 
 import bcrypt
-import databases.core
 from fastapi import APIRouter
 from fastapi import Response
 from fastapi.param_functions import Header
@@ -73,7 +69,6 @@ from app.usecases.performance import ScoreParams
 
 OSU_API_V2_CHANGELOG_URL = "https://osu.ppy.sh/api/v2/changelog"
 
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
 DISK_CHAT_LOG_FILE = ".data/logs/chat.log"
 
 BASE_DOMAIN = app.settings.DOMAIN
@@ -301,7 +296,7 @@ class ChangeAction(BasePacket):
             app.state.sessions.players.enqueue(app.packets.user_stats(player))
 
 
-IGNORED_CHANNELS = ["#highlight", "#userlog"]
+IGNORED_CHANNELS: list[str] = ["#highlight", "#userlog"]
 
 
 @register(ClientPackets.SEND_PUBLIC_MESSAGE)
@@ -470,7 +465,7 @@ WELCOME_MSG = "\n".join(
     (
         f"Welcome to {BASE_DOMAIN}.",
         "To see a list of commands, use !help.",
-        "We have a public (Discord)[https://discord.gg/ShEQgUx]!",
+        f"We have a public (Discord)[{app.settings.DISCORD_URL}]!",
         "Enjoy the server!",
     ),
 )
@@ -483,11 +478,6 @@ RESTRICTED_MSG = (
 
 WELCOME_NOTIFICATION = app.packets.notification(
     f"Welcome back to {BASE_DOMAIN}!\nRunning bancho.py v{app.settings.VERSION}.",
-)
-
-OFFLINE_NOTIFICATION = app.packets.notification(
-    "The server is currently running in offline mode; "
-    "some features will be unavailable.",
 )
 
 
@@ -871,6 +861,7 @@ async def handle_osu_login_request(
         is_tourney_client=osu_version.stream == "tourney",
         api_key=user_info["api_key"],
         lb_preference=user_info["lb_preference"],
+        show_bancho_lb=user_info["show_bancho_lb"] == 1,
     )
 
     data = bytearray(app.packets.protocol_version(19))
@@ -895,14 +886,14 @@ async def handle_osu_login_request(
         if (
             not channel.auto_join
             or not channel.can_read(player.priv)
-            or channel._name == "#lobby"  # (can't be in mp lobby @ login)
+            or channel.real_name == "#lobby"  # (can't be in mp lobby @ login)
         ):
             continue
 
         # send chan info to all players who can see
         # the channel (to update their playercounts)
         chan_info_packet = app.packets.channel_info(
-            channel._name,
+            channel.real_name,
             channel.topic,
             len(channel.players),
         )
@@ -920,6 +911,8 @@ async def handle_osu_login_request(
     # information from sql to be cached.
     await player.stats_from_sql_full()
     await player.relationships_from_sql()
+    if player.show_bancho_lb:
+        await player.update_bancho_rank()
 
     # TODO: fetch player.recent_scores from sql
 
@@ -959,29 +952,28 @@ async def handle_osu_login_request(
             read=False,
         )
 
-        if mail_rows:
-            sent_to: set[int] = set()
+        sent_to: set[int] = set()
 
-            for msg in mail_rows:
-                # Add "Unread messages" header as the first message
-                # for any given sender, to make it clear that the
-                # messages are coming from the mail system.
-                if msg["from_id"] not in sent_to:
-                    data += app.packets.send_message(
-                        sender=msg["from_name"],
-                        msg="Unread messages",
-                        recipient=msg["to_name"],
-                        sender_id=msg["from_id"],
-                    )
-                    sent_to.add(msg["from_id"])
-
-                msg_time = datetime.fromtimestamp(msg["time"])
+        for msg in mail_rows:
+            # Add "Unread messages" header as the first message
+            # for any given sender, to make it clear that the
+            # messages are coming from the mail system.
+            if msg["from_id"] not in sent_to:
                 data += app.packets.send_message(
                     sender=msg["from_name"],
-                    msg=f'[{msg_time:%a %b %d @ %H:%M%p}] {msg["msg"]}',
+                    msg="Unread messages",
                     recipient=msg["to_name"],
                     sender_id=msg["from_id"],
                 )
+                sent_to.add(msg["from_id"])
+
+            msg_time = datetime.fromtimestamp(msg["time"])
+            data += app.packets.send_message(
+                sender=msg["from_name"],
+                msg=f'[{msg_time:%a %b %d @ %H:%M%p}] {msg["msg"]}',
+                recipient=msg["to_name"],
+                sender_id=msg["from_id"],
+            )
 
         if not player.priv & Privileges.VERIFIED:
             # this is the player's first login, verify their
@@ -1034,10 +1026,10 @@ async def handle_osu_login_request(
 
     if app.state.services.datadog:
         if not player.restricted:
-            app.state.services.datadog.increment("bancho.online_players")
+            app.state.services.datadog.increment("bancho.online_players")  # type: ignore[no-untyped-call]
 
         time_taken = time.time() - login_time
-        app.state.services.datadog.histogram("bancho.login_time", time_taken)
+        app.state.services.datadog.histogram("bancho.login_time", time_taken)  # type: ignore[no-untyped-call]
 
     user_os = "unix (wine)" if running_under_wine else "win32"
     country_code = player.geoloc["country"]["acronym"].upper()
@@ -1301,7 +1293,9 @@ class SendPrivateMessage(BasePacket):
                             ]
 
                             results = app.usecases.performance.calculate_performances(
-                                osu_file_path=str(BEATMAPS_PATH / f"{bmap.id}.osu"),
+                                osu_file=app.state.services.storage.get_beatmap_file(
+                                    bmap.id,
+                                ),
                                 scores=scores,
                             )
 
@@ -1634,6 +1628,8 @@ class MatchChangeSettings(BasePacket):
             bmap = await Beatmap.from_md5(self.match_data.map_md5)
 
             if bmap:
+                assert bmap.md5 is not None
+
                 player.match.map_id = bmap.id
                 player.match.map_md5 = bmap.md5
                 player.match.map_name = bmap.full_name
@@ -1772,7 +1768,9 @@ class MatchComplete(BasePacket):
 
         if player.match.is_scrimming:
             # determine winner, update match points & inform players.
-            asyncio.create_task(player.match.update_matchpoints(was_playing))
+            asyncio.create_task(  # type: ignore[unused-awaitable]
+                player.match.update_matchpoints(was_playing),
+            )
 
 
 @register(ClientPackets.MATCH_CHANGE_MODS)
@@ -2118,7 +2116,9 @@ class StatsRequest(BasePacket):
 
     async def handle(self, player: Player) -> None:
         unrestrcted_ids = [p.id for p in app.state.sessions.players.unrestricted]
-        is_online = lambda o: o in unrestrcted_ids and o != player.id
+
+        def is_online(o: int) -> bool:
+            return o in unrestrcted_ids and o != player.id
 
         for online in filter(is_online, self.user_ids):
             target = app.state.sessions.players.get(id=online)

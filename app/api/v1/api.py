@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from pathlib import Path as SystemPath
 from typing import Literal
 
 from fastapi import APIRouter
@@ -32,18 +31,11 @@ from app.repositories import tourney_pools as tourney_pools_repo
 from app.repositories import users as users_repo
 from app.usecases.performance import ScoreParams
 
-AVATARS_PATH = SystemPath.cwd() / ".data/avatars"
-BEATMAPS_PATH = SystemPath.cwd() / ".data/osu"
-REPLAYS_PATH = SystemPath.cwd() / ".data/osr"
-SCREENSHOTS_PATH = SystemPath.cwd() / ".data/ss"
-
-
 router = APIRouter()
-oauth2_scheme = HTTPBearer(auto_error=False)
+http_bearer_scheme = HTTPBearer(auto_error=False)
 
-# NOTE: the api is still under design and is subject to change.
-# to keep up with breaking changes, please either join our discord,
-# or keep up with changes to https://github.com/JKBGL/gulag-api-docs.
+# NOTE: The V1 APIs should not be used if a V2 API is available.
+#       These APIs may be deprecated in the future.
 
 # Unauthorized (no api key required)
 # GET /search_players: returns a list of matching users, based on a passed string, sorted by ascending ID.
@@ -60,18 +52,14 @@ oauth2_scheme = HTTPBearer(auto_error=False)
 # GET /get_leaderboard: return the top players for a given mode & sort condition
 
 # Authorized (requires valid api key, passed as 'Authorization' header)
-# NOTE: authenticated handlers may have privilege requirements.
-
-# [Normal]
 # GET /calculate_pp: calculate & return pp for a given beatmap.
-# POST/PUT /set_avatar: Update the tokenholder's avatar to a given file.
 
 DATETIME_OFFSET = 0x89F7FF5F7B58000
 
 
 @router.get("/calculate_pp")
 async def api_calculate_pp(
-    token: HTTPCredentials = Depends(oauth2_scheme),
+    token: HTTPCredentials | None = Depends(http_bearer_scheme),
     beatmap_id: int = Query(None, alias="id", min=0, max=2_147_483_647),
     nkatu: int = Query(None, max=2_147_483_647),
     ngeki: int = Query(None, max=2_147_483_647),
@@ -130,8 +118,8 @@ async def api_calculate_pp(
         )
 
     results = app.usecases.performance.calculate_performances(
-        str(BEATMAPS_PATH / f"{beatmap.id}.osu"),
-        scores,
+        osu_file=app.state.services.storage.get_beatmap_file(beatmap.id),
+        scores=scores,
     )
 
     # "Inject" the accuracy into the list of results
@@ -484,6 +472,16 @@ async def api_get_player_scores(
     )
 
 
+@router.get("/aggregate_pp_stats")
+async def aggregate_pp_stats(
+    status: int | None = Query(None, alias="status", ge=0, le=2),
+) -> Response:
+    """Return the aggregate pp stats of the server."""
+    return ORJSONResponse(
+        {"status": "success", "stats": await scores_repo.aggregate_pp_stats(status)},
+    )
+
+
 @router.get("/get_player_most_played")
 async def api_get_player_most_played(
     user_id: int | None = Query(None, alias="id", ge=3, le=2_147_483_647),
@@ -707,17 +705,15 @@ async def api_get_replay(
     the player's total replay views.
     """
     # fetch replay file & make sure it exists
-    replay_file = REPLAYS_PATH / f"{score_id}.osr"
-    if not replay_file.exists():
+    replay_file = app.state.services.storage.get_replay_file(score_id)
+    if not replay_file:
         return ORJSONResponse(
             {"status": "Replay not found."},
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    # read replay frames from file
-    raw_replay_data = replay_file.read_bytes()
     if not include_headers:
         return Response(
-            bytes(raw_replay_data),
+            replay_file,
             media_type="application/octet-stream",
             headers={
                 "Content-Description": "File Transfer",
@@ -790,8 +786,8 @@ async def api_get_replay(
     timestamp = int(row["play_time"].timestamp() * 1e7)
     replay_data += struct.pack("<q", timestamp + DATETIME_OFFSET)
     # pack the raw replay data into the buffer
-    replay_data += struct.pack("<i", len(raw_replay_data))
-    replay_data += raw_replay_data
+    replay_data += struct.pack("<i", len(replay_file))
+    replay_data += replay_file
     # pack additional info buffer.
     replay_data += struct.pack("<q", score_id)
     # NOTE: target practice sends extra mods, but
@@ -1032,53 +1028,3 @@ async def api_get_pool(
             },
         },
     )
-
-
-# def requires_api_key(f: Callable) -> Callable:
-#     @wraps(f)
-#     async def wrapper(conn: Connection) -> HTTPResponse:
-#         conn.resp_headers["Content-Type"] = "application/json"
-#         if "Authorization" not in conn.headers:
-#             return (400, JSON({"status": "Must provide authorization token."}))
-
-#         api_key = conn.headers["Authorization"]
-
-#         if api_key not in app.state.sessions.api_keys:
-#             return (401, JSON({"status": "Unknown authorization token."}))
-
-#         # get player from api token
-#         player_id = app.state.sessions.api_keys[api_key]
-#         player = await app.state.sessions.players.from_cache_or_sql(id=player_id)
-
-#         return await f(conn, player)
-
-#     return wrapper
-
-
-# NOTE: `Content-Type = application/json` is applied in the above decorator
-#                                         for the following api handlers.
-
-
-# @domain.route("/set_avatar", methods=["POST", "PUT"])
-# @requires_api_key
-# async def api_set_avatar(conn: Connection, player: Player) -> HTTPResponse:
-#     """Update the tokenholder's avatar to a given file."""
-#     if "avatar" not in conn.files:
-#         return (400, JSON({"status": "must provide avatar file."}))
-
-#     ava_file = conn.files["avatar"]
-
-#     # block files over 4MB
-#     if len(ava_file) > (4 * 1024 * 1024):
-#         return (400, JSON({"status": "avatar file too large (max 4MB)."}))
-
-#     if ava_file[6:10] in (b"JFIF", b"Exif"):
-#         ext = "jpeg"
-#     elif ava_file.startswith(b"\211PNG\r\n\032\n"):
-#         ext = "png"
-#     else:
-#         return (400, JSON({"status": "invalid file type."}))
-
-#     # write to the avatar file
-#     (AVATARS_PATH / f"{player.id}.{ext}").write_bytes(ava_file)
-#     return JSON({"status": "success."})

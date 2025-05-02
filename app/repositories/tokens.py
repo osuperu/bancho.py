@@ -12,7 +12,6 @@ from sqlalchemy import insert
 from sqlalchemy import select
 
 import app.state.services
-from app.constants import privileges
 from app.repositories import Base
 
 

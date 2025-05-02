@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import aiosu
 import starlette.routing
 from fastapi import FastAPI
 from fastapi import status
@@ -83,14 +84,24 @@ async def lifespan(asgi_app: BanchoAPI) -> AsyncIterator[None]:
         )
 
     await app.state.services.database.connect()
-    await app.state.services.redis.initialize()
+    await app.state.services.redis.initialize()  # type: ignore[unused-awaitable]
+
+    app.state.services.osu_api_v1 = aiosu.v1.Client(
+        token=app.settings.OSU_API_KEY,
+    )
+
+    app.state.services.osu_api_v2 = aiosu.v2.Client(
+        client_id=app.settings.OSU_API_CLIENT_ID,
+        client_secret=app.settings.OSU_API_CLIENT_SECRET,
+        token=aiosu.models.OAuthToken(),
+    )
 
     if app.state.services.datadog is not None:
-        app.state.services.datadog.start(
+        app.state.services.datadog.start(  # type: ignore[no-untyped-call]
             flush_in_thread=True,
             flush_interval=15,
         )
-        app.state.services.datadog.gauge("bancho.online_players", 0)
+        app.state.services.datadog.gauge("bancho.online_players", 0)  # type: ignore[no-untyped-call]
 
     app.state.services.ip_resolver = app.state.services.IPResolver()
 
@@ -118,9 +129,14 @@ async def lifespan(asgi_app: BanchoAPI) -> AsyncIterator[None]:
     await app.state.services.database.disconnect()
     await app.state.services.redis.aclose()
 
+    await app.state.services.osu_api_v1.aclose()
+    del app.state.services.osu_api_v1
+    await app.state.services.osu_api_v2.aclose()
+    del app.state.services.osu_api_v2
+
     if app.state.services.datadog is not None:
-        app.state.services.datadog.stop()
-        app.state.services.datadog.flush()
+        app.state.services.datadog.stop()  # type: ignore[no-untyped-call]
+        app.state.services.datadog.flush()  # type: ignore[no-untyped-call]
 
 
 def init_exception_handlers(asgi_app: BanchoAPI) -> None:
@@ -177,6 +193,7 @@ def init_routes(asgi_app: BanchoAPI) -> None:
 
         asgi_app.host(f"osu.{domain}", domains.osu.router)
         asgi_app.host(f"b.{domain}", domains.map.router)
+        asgi_app.host(f"a.{domain}", domains.ava.router)
 
         # bancho.py's developer-facing api
         asgi_app.host(f"api.{domain}", api_router)

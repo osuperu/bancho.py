@@ -4,10 +4,6 @@ from collections.abc import Iterable
 from collections.abc import Iterator
 from collections.abc import Sequence
 from typing import Any
-from typing import Literal
-from typing import cast
-
-import databases.core
 
 import app.settings
 import app.state
@@ -20,7 +16,6 @@ from app.objects.channel import Channel
 from app.objects.match import Match
 from app.objects.player import Player
 from app.repositories import channels as channels_repo
-from app.repositories import clans as clans_repo
 from app.repositories import users as users_repo
 from app.utils import make_safe_name
 
@@ -43,12 +38,12 @@ class Channels(list[Channel]):
         # XXX: we use the "real" name, aka
         # #multi_1 instead of #multiplayer
         # #spect_1 instead of #spectator.
-        return f'[{", ".join(c._name for c in self)}]'
+        return f'[{", ".join(c.real_name for c in self)}]'
 
     def get_by_name(self, name: str) -> Channel | None:
         """Get a channel from the list by `name`."""
         for channel in self:
-            if channel._name == name:
+            if channel.real_name == name:
                 return channel
 
         return None
@@ -228,6 +223,7 @@ class Players(list[Player]):
             donor_end=player["donor_end"],
             api_key=player["api_key"],
             lb_preference=player["lb_preference"],
+            show_bancho_lb=player["show_bancho_lb"] == 1,
         )
 
     async def from_cache_or_sql(
@@ -306,6 +302,7 @@ async def initialize_ram_caches() -> None:
         login_time=float(0x7FFFFFFF),  # (never auto-dc)
         is_bot_client=True,
         lb_preference=users_repo.LeaderboardPreference.SCORE,
+        show_bancho_lb=False,
     )
     app.state.sessions.players.append(app.state.sessions.bot)
 

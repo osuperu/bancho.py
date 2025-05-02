@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ipaddress
-import logging
 import pickle
 import re
 import secrets
@@ -9,9 +8,9 @@ from collections.abc import AsyncGenerator
 from collections.abc import Mapping
 from collections.abc import MutableMapping
 from pathlib import Path
-from typing import TYPE_CHECKING
 from typing import TypedDict
 
+import aiosu
 import datadog as datadog_module
 import datadog.threadstats.base as datadog_client
 import httpx
@@ -24,6 +23,7 @@ from app._typing import IPAddress
 from app.adapters.database import Database
 from app.logging import Ansi
 from app.logging import log
+from app.storage import Storage
 
 STRANGE_LOG_DIR = Path.cwd() / ".data/logs"
 
@@ -35,18 +35,19 @@ SQL_UPDATES_FILE = Path.cwd() / "migrations/migrations.sql"
 
 http_client = httpx.AsyncClient()
 database = Database(app.settings.DB_DSN)
-redis: aioredis.Redis = aioredis.from_url(app.settings.REDIS_DSN)
-
+redis: aioredis.Redis = aioredis.from_url(app.settings.REDIS_DSN)  # type: ignore[no-untyped-call]
+osu_api_v1: aiosu.v1.Client
+osu_api_v2: aiosu.v2.Client
 datadog: datadog_client.ThreadStats | None = None
 if str(app.settings.DATADOG_API_KEY) and str(app.settings.DATADOG_APP_KEY):
     datadog_module.initialize(
         api_key=str(app.settings.DATADOG_API_KEY),
         app_key=str(app.settings.DATADOG_APP_KEY),
     )
-    datadog = datadog_client.ThreadStats()
+    datadog = datadog_client.ThreadStats()  # type: ignore[no-untyped-call]
 
 ip_resolver: IPResolver
-
+storage = Storage()
 """ session usecases """
 
 

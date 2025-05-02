@@ -58,3 +58,18 @@ class PlayerStats(BaseModel):
     sh_count: int
     s_count: int
     a_count: int
+
+
+class UpdatePlayerUsernameRequest(BaseModel):
+    current_password: str
+    new_username: str
+
+
+class UpdatePlayerEmailRequest(BaseModel):
+    current_password: str
+    new_email: str
+
+
+class UpdatePlayerPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str

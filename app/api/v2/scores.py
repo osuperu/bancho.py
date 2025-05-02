@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter
 from fastapi import status
 from fastapi.param_functions import Query
@@ -24,6 +26,7 @@ async def get_all_scores(
     user_id: int | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    order: Literal["asc", "desc"] | None = None,
 ) -> Success[list[Score]] | Failure:
     scores = await scores_repo.fetch_many(
         map_md5=map_md5,
@@ -33,6 +36,7 @@ async def get_all_scores(
         user_id=user_id,
         page=page,
         page_size=page_size,
+        order=order,
     )
     total_scores = await scores_repo.fetch_count(
         map_md5=map_md5,

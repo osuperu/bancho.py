@@ -24,11 +24,11 @@ from re import sub
 from typing import Any
 from typing import Dict
 from typing import Literal
-from typing import cast
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 from zipfile import ZipFile
 
+import aiosu
 import bcrypt
 from fastapi import status
 from fastapi.datastructures import FormData
@@ -41,7 +41,6 @@ from fastapi.param_functions import Header
 from fastapi.param_functions import Path
 from fastapi.param_functions import Query
 from fastapi.requests import Request
-from fastapi.responses import FileResponse
 from fastapi.responses import ORJSONResponse
 from fastapi.responses import RedirectResponse
 from fastapi.responses import Response
@@ -54,6 +53,8 @@ import app.state
 import app.utils
 from app import encryption
 from app._typing import UNSET
+from app.adapters.osu_api_v1 import get_replay
+from app.adapters.osu_api_v2 import get_beatmap_scores
 from app.constants import regexes
 from app.constants.clientflags import LastFMFlags
 from app.constants.gamemodes import GameMode
@@ -88,13 +89,6 @@ from app.usecases import user_achievements as user_achievements_usecases
 from app.utils import escape_enum
 from app.utils import pymysql_encode
 
-BEATMAPS_PATH = SystemPath.cwd() / ".data/osu"
-REPLAYS_PATH = SystemPath.cwd() / ".data/osr"
-SCREENSHOTS_PATH = SystemPath.cwd() / ".data/ss"
-OSZ_PATH = SystemPath.cwd() / ".data/osz"
-OSZ2_PATH = SystemPath.cwd() / ".data/osz2"
-THUMBNAILS_PATH = SystemPath.cwd() / ".data/thumbnails"
-AUDIO_PATH = SystemPath.cwd() / ".data/audio"
 
 router = APIRouter(
     tags=["osu! web API"],
@@ -478,16 +472,19 @@ async def osuScreenshot(
             )
 
         while True:
-            filename = f"{secrets.token_urlsafe(6)}.{extension}"
-            ss_file = SCREENSHOTS_PATH / filename
-            if not ss_file.exists():
+            filename = f"{secrets.token_urlsafe(6)}"
+            ss_file = app.state.services.storage.get_screenshot(filename, extension)
+            if not ss_file:
                 break
 
-        with ss_file.open("wb") as f:
-            f.write(screenshot_view)
+        app.state.services.storage.upload_screenshot(
+            filename,
+            extension,
+            screenshot_view,
+        )
 
     log(f"{player} uploaded {filename}.")
-    return Response(filename.encode())
+    return Response(f"{filename}.{extension}".encode())
 
 
 @router.get("/web/osu-getfriends.php")
@@ -515,7 +512,7 @@ async def osuGetBeatmapInfo(
     num_requests = len(form_data.Filenames) + len(form_data.Ids)
     log(f"{player} requested info for {num_requests} maps.", Ansi.LCYAN)
 
-    ret = []
+    response_lines: list[str] = []
 
     for idx, map_filename in enumerate(form_data.Filenames):
         # try getting the map from sql
@@ -539,7 +536,7 @@ async def osuGetBeatmapInfo(
         ):
             grades[score["mode"]] = score["grade"]
 
-        ret.append(
+        response_lines.append(
             "{i}|{id}|{set_id}|{md5}|{status}|{grades}".format(
                 i=idx,
                 id=beatmap["id"],
@@ -555,7 +552,7 @@ async def osuGetBeatmapInfo(
             f"{player} requested map(s) info by id ({form_data.Ids})",
         )
 
-    return Response("\n".join(ret).encode())
+    return Response("\n".join(response_lines).encode())
 
 
 @router.get("/web/osu-getfavourites.php")
@@ -1049,11 +1046,11 @@ async def osuSubmitModularSelector(
         """ Score submission checks completed; submit the score. """
 
         if app.state.services.datadog:
-            app.state.services.datadog.increment("bancho.submitted_scores")
+            app.state.services.datadog.increment("bancho.submitted_scores")  # type: ignore[no-untyped-call]
 
         if score.status == SubmissionStatus.BEST:
             if app.state.services.datadog:
-                app.state.services.datadog.increment("bancho.submitted_scores_best")
+                app.state.services.datadog.increment("bancho.submitted_scores_best")  # type: ignore[no-untyped-call]
 
             if score.bmap.has_leaderboard:
                 if score.bmap.status == RankedStatus.Loved and score.mode in (
@@ -1164,8 +1161,7 @@ async def osuSubmitModularSelector(
         MIN_REPLAY_SIZE = 24
 
         if len(replay_data) >= MIN_REPLAY_SIZE:
-            replay_disk_file = REPLAYS_PATH / f"{score.id}.osr"
-            replay_disk_file.write_bytes(replay_data)
+            app.state.services.storage.upload_replay(score.id, replay_data)
         else:
             log(f"{score.player} submitted a score without a replay!", Ansi.LRED)
 
@@ -1291,6 +1287,8 @@ async def osuSubmitModularSelector(
 
     if not score.player.restricted:
         # enqueue new stats info to all other users
+        if score.player.show_bancho_lb:
+            await score.player.update_bancho_rank()
         app.state.sessions.players.enqueue(app.packets.user_stats(score.player))
 
         # update beatmap with new stats
@@ -1377,7 +1375,11 @@ async def osuSubmitModularSelector(
             )
 
         overall_ranking_chart_entries = (
-            chart_entry("rank", prev_stats.rank, stats.rank),
+            chart_entry(
+                "rank",
+                prev_stats.bancho_rank if player.show_bancho_lb else prev_stats.rank,
+                stats.bancho_rank if player.show_bancho_lb else stats.rank,
+            ),
             chart_entry("rankedScore", prev_stats.rscore, stats.rscore),
             chart_entry("totalScore", prev_stats.tscore, stats.tscore),
             chart_entry("maxCombo", prev_stats.max_combo, stats.max_combo),
@@ -1426,18 +1428,33 @@ async def getReplay(
     score_id: int = Query(..., alias="c", min=0, max=9_223_372_036_854_775_807),
 ) -> Response:
     score = await Score.from_sql(score_id)
-    if not score:
+
+    if score and score.player is not None and score.player.id == player.id:
+        replay = app.state.services.storage.get_replay_file(score_id)
+        if replay:
+            # we don't need to increment replay views for this score
+            # because it's the player's own replay
+            return Response(replay)
         return Response(b"", status_code=404)
 
-    file = REPLAYS_PATH / f"{score_id}.osr"
-    if not file.exists():
-        return Response(b"", status_code=404)
+    if player.show_bancho_lb:
+        replay_data = await get_replay(score_id, mode)
 
-    # increment replay views for this score
-    if score.player is not None and player.id != score.player.id:
-        app.state.loop.create_task(score.increment_replay_views())
+        if replay_data is None:
+            return Response(b"", status_code=404)
+        else:
+            replay = base64.b64decode(replay_data.content)
+            return Response(replay)
 
-    return FileResponse(file)
+    if score:
+        replay = app.state.services.storage.get_replay_file(score_id)
+        if replay:
+            # increment replay views for this score
+            if score.player is not None and player.id != score.player.id:
+                app.state.loop.create_task(score.increment_replay_views())  # type: ignore[unused-awaitable]
+            return Response(replay)
+
+    return Response(b"", status_code=404)
 
 
 @router.get("/web/osu-rate.php")
@@ -1487,14 +1504,46 @@ class LeaderboardType(IntEnum):
     Country = 4
 
 
-async def get_leaderboard_scores(
+async def get_bancho_scores(
     leaderboard_type: LeaderboardType | int,
-    map_md5: str,
+    map: Beatmap,
+    mode: int,
+    mods: Mods,
+    scoring_metric: str,
+) -> list[dict[str, Any]]:
+    if leaderboard_type == LeaderboardType.Mods:
+        scores = await get_beatmap_scores(
+            beatmap_id=map.id,
+            mode=mode,
+            mods=mods.value,
+        )
+    elif leaderboard_type in (LeaderboardType.Friends, LeaderboardType.Country):
+        return []
+    else:
+        if (mods.value & Mods.RELAX) or (mods.value & Mods.AUTOPILOT):
+            return []
+        scores = await get_beatmap_scores(
+            beatmap_id=map.id,
+            mode=mode,
+        )
+
+    return [
+        await score_from_aiosu(
+            scoring_metric=scoring_metric,
+            aiosu_score=score,
+        )
+        for score in scores or []
+    ]
+
+
+async def get_local_scores(
+    leaderboard_type: LeaderboardType | int,
+    map: Beatmap,
     mode: int,
     mods: Mods,
     player: Player,
     scoring_metric: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+) -> list[dict[str, Any]]:
     query = [
         f"SELECT s.id, s.{scoring_metric} AS _score, "
         "s.max_combo, s.n50, s.n100, s.n300, "
@@ -1509,7 +1558,7 @@ async def get_leaderboard_scores(
     ]
 
     params: dict[str, Any] = {
-        "map_md5": map_md5,
+        "map_md5": map.md5,
         "user_id": player.id,
         "mode": mode,
     }
@@ -1524,51 +1573,234 @@ async def get_leaderboard_scores(
         query.append("AND u.country = :country")
         params["country"] = player.geoloc["country"]["acronym"]
 
-    # TODO: customizability of the number of scores
     query.append("ORDER BY _score DESC LIMIT 50")
 
-    score_rows = await app.state.services.database.fetch_all(
+    return (
+        await app.state.services.database.fetch_all(
+            " ".join(query),
+            params,
+        )
+        or []
+    )
+
+
+async def get_personal_best(
+    leaderboard_type: LeaderboardType | int,
+    map: Beatmap,
+    mode: int,
+    mods: Mods,
+    player: Player,
+    scoring_metric: str,
+) -> dict[str, Any] | None:
+    query = [
+        f"SELECT s.id, s.{scoring_metric} AS _score, "
+        "s.max_combo, s.n50, s.n100, s.n300, "
+        "s.nmiss, s.nkatu, s.ngeki, s.perfect, s.mods, "
+        "UNIX_TIMESTAMP(s.play_time) time, u.id userid, u.name name "
+        "FROM scores s "
+        "INNER JOIN users u ON u.id = s.userid "
+        "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
+        "AND s.userid = :user_id AND s.status = 2",
+    ]
+
+    params: dict[str, Any] = {
+        "map_md5": map.md5,
+        "mode": mode,
+        "user_id": player.id,
+    }
+
+    if leaderboard_type == LeaderboardType.Mods:
+        query.append("AND s.mods = :mods")
+        params["mods"] = mods
+
+    query.append("ORDER BY _score DESC LIMIT 1")
+
+    return await app.state.services.database.fetch_one(
         " ".join(query),
         params,
     )
 
-    if score_rows:  # None or []
-        # fetch player's personal best score
-        personal_best_score_row = await app.state.services.database.fetch_one(
-            f"SELECT id, {scoring_metric} AS _score, "
-            "max_combo, n50, n100, n300, "
-            "nmiss, nkatu, ngeki, perfect, mods, "
-            "UNIX_TIMESTAMP(play_time) time "
-            "FROM scores "
-            "WHERE map_md5 = :map_md5 AND mode = :mode "
-            "AND userid = :user_id AND status = 2 "
-            "ORDER BY _score DESC LIMIT 1",
-            {"map_md5": map_md5, "mode": mode, "user_id": player.id},
+
+async def calculate_rank_from_merged_scores(
+    score_rows: list[dict[str, Any]],
+    personal_best: dict[str, Any],
+) -> int:
+    return 1 + sum(
+        1
+        for score in score_rows
+        if score["_score"] > personal_best["_score"]
+        or (
+            score["_score"] == personal_best["_score"]
+            and score["time"] < personal_best["time"]
         )
+    )
 
-        if personal_best_score_row is not None:
-            # calculate the rank of the score.
-            p_best_rank = 1 + await app.state.services.database.fetch_val(
-                "SELECT COUNT(*) FROM scores s "
-                "INNER JOIN users u ON u.id = s.userid "
-                "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
-                "AND s.status = 2 AND u.priv & 1 "
-                f"AND s.{scoring_metric} > :score",
-                {
-                    "map_md5": map_md5,
-                    "mode": mode,
-                    "score": personal_best_score_row["_score"],
-                },
-                column=0,  # COUNT(*)
-            )
 
-            # attach rank to personal best row
-            personal_best_score_row["rank"] = p_best_rank
-    else:
-        score_rows = []
-        personal_best_score_row = None
+async def calculate_rank_from_local_scores(
+    map: Beatmap,
+    mode: int,
+    scoring_metric: str,
+    score: float,
+) -> int:
+    return 1 + int(
+        await app.state.services.database.fetch_val(
+            "SELECT COUNT(*) FROM scores s "
+            "INNER JOIN users u ON u.id = s.userid "
+            "WHERE s.map_md5 = :map_md5 AND s.mode = :mode "
+            "AND s.status = 2 AND u.priv & 1 "
+            f"AND s.{scoring_metric} > :score",
+            {
+                "map_md5": map.md5,
+                "mode": mode,
+                "score": score,
+            },
+            column=0,  # COUNT(*)
+        ),
+    )
+
+
+async def get_bancho_leaderboard(
+    leaderboard_type: LeaderboardType | int,
+    map: Beatmap,
+    mode: int,
+    mods: Mods,
+    player: Player,
+    scoring_metric: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    # Get scores from both bancho and local database
+    bancho_scores = await get_bancho_scores(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        scoring_metric,
+    )
+    local_scores = await get_local_scores(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        player,
+        scoring_metric,
+    )
+
+    # Merge and sort scores
+    score_rows = sorted(
+        bancho_scores + local_scores,
+        key=lambda x: (-x["_score"], x["time"]),
+    )[:50]
+
+    # Get personal best
+    personal_best_score_row = await get_personal_best(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        player,
+        scoring_metric,
+    )
+    if personal_best_score_row is not None:
+        personal_best_score_row["rank"] = await calculate_rank_from_merged_scores(
+            score_rows,
+            personal_best_score_row,
+        )
+        personal_best_score_row.pop("name")
+        personal_best_score_row.pop("userid")
 
     return score_rows, personal_best_score_row
+
+
+async def get_local_leaderboard(
+    leaderboard_type: LeaderboardType | int,
+    map: Beatmap,
+    mode: int,
+    mods: Mods,
+    player: Player,
+    scoring_metric: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    # Get scores only from local database
+    score_rows = await get_local_scores(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        player,
+        scoring_metric,
+    )
+
+    if not score_rows:
+        return [], None
+
+    # Get personal best
+    personal_best_score_row = await get_personal_best(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        player,
+        scoring_metric,
+    )
+    if personal_best_score_row is not None:
+        personal_best_score_row["rank"] = await calculate_rank_from_local_scores(
+            map,
+            mode,
+            scoring_metric,
+            personal_best_score_row["_score"],
+        )
+
+    return score_rows, personal_best_score_row
+
+
+async def get_leaderboard_scores(
+    leaderboard_type: LeaderboardType | int,
+    map: Beatmap,
+    mode: int,
+    mods: Mods,
+    player: Player,
+    scoring_metric: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    if player.show_bancho_lb:
+        return await get_bancho_leaderboard(
+            leaderboard_type,
+            map,
+            mode,
+            mods,
+            player,
+            scoring_metric,
+        )
+
+    return await get_local_leaderboard(
+        leaderboard_type,
+        map,
+        mode,
+        mods,
+        player,
+        scoring_metric,
+    )
+
+
+async def score_from_aiosu(
+    scoring_metric: str,
+    aiosu_score: aiosu.models.score.Score,
+) -> dict[str, Any]:
+    return {
+        "id": aiosu_score.id,
+        "_score": (aiosu_score.score if scoring_metric == "score" else aiosu_score.pp),
+        "max_combo": aiosu_score.max_combo,
+        "n50": aiosu_score.statistics.count_50,
+        "n100": aiosu_score.statistics.count_100,
+        "n300": aiosu_score.statistics.count_300,
+        "nmiss": aiosu_score.statistics.count_miss,
+        "nkatu": aiosu_score.statistics.count_katu,
+        "ngeki": aiosu_score.statistics.count_geki,
+        "perfect": aiosu_score.perfect,
+        "mods": aiosu_score.mods.bitwise,
+        "time": int(aiosu_score.created_at.timestamp()),
+        "userid": aiosu_score.user_id,
+        "name": (
+            aiosu_score.user.username if aiosu_score.user is not None else "Unknown"
+        ),
+    }
 
 
 SCORE_LISTING_FMTSTR = (
@@ -1642,6 +1874,7 @@ async def getScores(
 
         map_filename = unquote_plus(map_filename)  # TODO: is unquote needed?
 
+        map_exists = False
         if has_set_id:
             # we can look it up in the specific set from cache
             for bmap in app.state.cache.beatmapset[map_set_id].maps:
@@ -1675,7 +1908,7 @@ async def getScores(
     # we've found a beatmap for the request.
 
     if app.state.services.datadog:
-        app.state.services.datadog.increment("bancho.leaderboards_served")
+        app.state.services.datadog.increment("bancho.leaderboards_served")  # type: ignore[no-untyped-call]
 
     if bmap.status < RankedStatus.Ranked:
         # only show leaderboards for ranked,
@@ -1687,7 +1920,7 @@ async def getScores(
     if not requesting_from_editor_song_select:
         score_rows, personal_best_score_row = await get_leaderboard_scores(
             leaderboard_type,
-            bmap.md5,
+            bmap,
             mode,
             mods,
             player,
@@ -1886,14 +2119,6 @@ async def banchoConnect(
     return Response(b"")
 
 
-_checkupdates_cache = {  # default timeout is 1h, set on request.
-    "cuttingedge": {"check": None, "path": None, "timeout": 0},
-    "stable40": {"check": None, "path": None, "timeout": 0},
-    "beta40": {"check": None, "path": None, "timeout": 0},
-    "stable": {"check": None, "path": None, "timeout": 0},
-}
-
-
 @router.get("/web/check-updates.php")
 async def checkUpdates(
     request: Request,
@@ -1940,9 +2165,9 @@ async def get_screenshot(
     extension: Literal["jpg", "jpeg", "png"] = Path(...),
 ) -> Response:
     """Serve a screenshot from the server, by filename."""
-    screenshot_path = SCREENSHOTS_PATH / f"{screenshot_id}.{extension}"
+    screenshot = app.state.services.storage.get_screenshot(screenshot_id, extension)
 
-    if not screenshot_path.exists():
+    if not screenshot:
         return ORJSONResponse(
             content={"status": "Screenshot not found."},
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1955,10 +2180,7 @@ async def get_screenshot(
     else:
         media_type = None
 
-    return FileResponse(
-        path=screenshot_path,
-        media_type=media_type,
-    )
+    return Response(screenshot, media_type=media_type)
 
 
 @router.get("/d/{map_set_id}")
@@ -2132,7 +2354,7 @@ async def register_account(
             await stats_repo.create_all_modes(player_id=player["id"])
 
         if app.state.services.datadog:
-            app.state.services.datadog.increment("bancho.registrations")
+            app.state.services.datadog.increment("bancho.registrations")  # type: ignore[no-untyped-call]
 
         log(f"<{username} ({player['id']})> has registered!", Ansi.LGREEN)
 

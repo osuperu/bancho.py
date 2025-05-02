@@ -10,16 +10,14 @@ from enum import StrEnum
 from enum import unique
 from functools import cached_property
 from typing import TYPE_CHECKING
-from typing import Literal
 from typing import TypedDict
 from typing import cast
-
-import databases.core
 
 import app.packets
 import app.settings
 import app.state
 from app._typing import IPAddress
+from app.adapters.osu_daily_api import get_closest_rank
 from app.constants.gamemodes import GameMode
 from app.constants.mods import Mods
 from app.constants.privileges import ClientPrivileges
@@ -35,7 +33,6 @@ from app.objects.match import Slot
 from app.objects.match import SlotStatus
 from app.objects.score import Grade
 from app.objects.score import Score
-from app.repositories import clans as clans_repo
 from app.repositories import logs as logs_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
@@ -94,6 +91,7 @@ class ModeData:
     max_combo: int
     total_hits: int
     rank: int  # global
+    bancho_rank: int  # bancho leaderboard
 
     grades: dict[Grade, int]  # XH, X, SH, S, A
 
@@ -216,6 +214,7 @@ class Player:
         pw_bcrypt: bytes | None,
         token: str,
         lb_preference: users_repo.LeaderboardPreference,
+        show_bancho_lb: bool = False,
         clan_id: int | None = None,
         clan_priv: ClanPrivileges | None = None,
         geoloc: Geolocation | None = None,
@@ -255,6 +254,7 @@ class Player:
         self.is_tourney_client = is_tourney_client
         self.api_key = api_key
         self.lb_preference = lb_preference
+        self.show_bancho_lb = show_bancho_lb
 
         # avoid enqueuing packets to bot accounts.
         if self.is_bot_client:
@@ -402,7 +402,7 @@ class Player:
 
         if not self.restricted:
             if app.state.services.datadog:
-                app.state.services.datadog.decrement("bancho.online_players")
+                app.state.services.datadog.decrement("bancho.online_players")  # type: ignore[no-untyped-call]
 
             app.state.sessions.players.enqueue(app.packets.logout(self.id))
 
@@ -482,7 +482,7 @@ class Player:
         webhook_url = app.settings.DISCORD_AUDIT_LOG_WEBHOOK
         if webhook_url:
             webhook = Webhook(webhook_url, content=log_msg)
-            asyncio.create_task(webhook.post())
+            asyncio.create_task(webhook.post())  # type: ignore[unused-awaitable]
 
         # refresh their client state
         if self.is_online:
@@ -519,7 +519,7 @@ class Player:
         webhook_url = app.settings.DISCORD_AUDIT_LOG_WEBHOOK
         if webhook_url:
             webhook = Webhook(webhook_url, content=log_msg)
-            asyncio.create_task(webhook.post())
+            asyncio.create_task(webhook.post())  # type: ignore[unused-awaitable]
 
         if self.is_online:
             # log the user out if they're offline, this
@@ -678,8 +678,8 @@ class Player:
                         self.match.host.enqueue(app.packets.match_transfer_host())
                         break
 
-            if self in self.match._refs:
-                self.match._refs.remove(self)
+            if self in self.match.referees:
+                self.match.referees.remove(self)
                 self.match.chat.send_bot(f"{self.name} removed from match referees.")
 
             # notify others of our deprature
@@ -692,7 +692,7 @@ class Player:
         if (
             self in channel
             or not channel.can_read(self.priv)  # player already in channel
-            or channel._name == "#lobby"  # no read privs
+            or channel.real_name == "#lobby"  # no read privs
             and not self.in_lobby  # not in mp lobby
         ):
             return False
@@ -920,6 +920,17 @@ class Player:
         )
         return cast(int, rank) + 1 if rank is not None else 0
 
+    async def get_global_bancho_rank(self, mode: GameMode) -> int:
+        if self.restricted:
+            return 0
+
+        response = await get_closest_rank(self.stats[mode].pp, mode)
+
+        if response["data"] is None:
+            return 0
+
+        return int(response["data"]["rank"])
+
     async def get_country_rank(self, mode: GameMode) -> int:
         if self.restricted:
             return 0
@@ -965,6 +976,7 @@ class Player:
                 max_combo=row["max_combo"],
                 total_hits=row["total_hits"],
                 rank=await self.get_global_rank(game_mode),
+                bancho_rank=0,  # initialize bancho rank
                 grades={
                     Grade.XH: row["xh_count"],
                     Grade.X: row["x_count"],
@@ -974,13 +986,22 @@ class Player:
                 },
             )
 
+    async def update_bancho_rank(self) -> None:
+        for mode in (
+            GameMode.VANILLA_OSU,
+            GameMode.VANILLA_TAIKO,
+            GameMode.VANILLA_CATCH,
+            GameMode.VANILLA_MANIA,
+        ):
+            self.stats[mode].bancho_rank = await self.get_global_bancho_rank(mode)
+
     def update_latest_activity_soon(self) -> None:
         """Update the player's latest activity in the database."""
         task = users_repo.partial_update(
             id=self.id,
             latest_activity=int(time.time()),
         )
-        app.state.loop.create_task(task)
+        app.state.loop.create_task(task)  # type: ignore[unused-awaitable]
 
     def enqueue(self, data: bytes) -> None:
         """Add data to be sent to the client."""

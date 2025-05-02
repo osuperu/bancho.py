@@ -5,7 +5,6 @@ import hashlib
 from datetime import datetime
 from enum import IntEnum
 from enum import unique
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import app.state
@@ -22,8 +21,6 @@ from app.utils import pymysql_encode
 
 if TYPE_CHECKING:
     from app.objects.player import Player
-
-BEATMAPS_PATH = Path.cwd() / ".data/osu"
 
 
 @unique
@@ -333,7 +330,7 @@ class Score:
         )
 
         result = app.usecases.performance.calculate_performances(
-            osu_file_path=str(BEATMAPS_PATH / f"{beatmap_id}.osu"),
+            osu_file=app.state.services.storage.get_beatmap_file(beatmap_id),
             scores=[score_args],
         )
 

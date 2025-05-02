@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
-from typing import Literal
 from typing import TypedDict
 from typing import cast
 
@@ -55,6 +55,7 @@ class UsersTable(Base):
         nullable=False,
         server_default="score",
     )
+    show_bancho_lb = Column(TINYINT(1), nullable=False, server_default="0")
 
     __table_args__ = (
         Index("users_priv_index", priv),
@@ -86,6 +87,7 @@ READ_PARAMS = (
     UsersTable.custom_badge_icon,
     UsersTable.userpage_content,
     UsersTable.lb_preference,
+    UsersTable.show_bancho_lb,
 )
 
 
@@ -109,6 +111,7 @@ class User(TypedDict):
     userpage_content: str | None
     api_key: str | None
     lb_preference: LeaderboardPreference
+    show_bancho_lb: bool
 
 
 async def create(
@@ -226,10 +229,11 @@ async def partial_update(
     name: str | _UnsetSentinel = UNSET,
     email: str | _UnsetSentinel = UNSET,
     priv: int | _UnsetSentinel = UNSET,
+    pw_bcrypt: bytes | _UnsetSentinel = UNSET,
     country: str | _UnsetSentinel = UNSET,
     silence_end: int | _UnsetSentinel = UNSET,
     donor_end: int | _UnsetSentinel = UNSET,
-    creation_time: _UnsetSentinel | _UnsetSentinel = UNSET,
+    creation_time: datetime | _UnsetSentinel = UNSET,
     latest_activity: int | _UnsetSentinel = UNSET,
     clan_id: int | _UnsetSentinel = UNSET,
     clan_priv: int | _UnsetSentinel = UNSET,
@@ -240,6 +244,7 @@ async def partial_update(
     userpage_content: str | None | _UnsetSentinel = UNSET,
     api_key: str | None | _UnsetSentinel = UNSET,
     lb_preference: LeaderboardPreference | _UnsetSentinel = UNSET,
+    show_bancho_lb: bool | _UnsetSentinel = UNSET,
 ) -> User | None:
     """Update a user in the database."""
     update_stmt = update(UsersTable).where(UsersTable.id == id)
@@ -249,6 +254,8 @@ async def partial_update(
         update_stmt = update_stmt.values(email=email)
     if not isinstance(priv, _UnsetSentinel):
         update_stmt = update_stmt.values(priv=priv)
+    if not isinstance(pw_bcrypt, _UnsetSentinel):
+        update_stmt = update_stmt.values(pw_bcrypt=pw_bcrypt)
     if not isinstance(country, _UnsetSentinel):
         update_stmt = update_stmt.values(country=country)
     if not isinstance(silence_end, _UnsetSentinel):
@@ -277,6 +284,8 @@ async def partial_update(
         update_stmt = update_stmt.values(api_key=api_key)
     if not isinstance(lb_preference, _UnsetSentinel):
         update_stmt = update_stmt.values(lb_preference=lb_preference)
+    if not isinstance(show_bancho_lb, _UnsetSentinel):
+        update_stmt = update_stmt.values(show_bancho_lb=show_bancho_lb)
 
     await app.state.services.database.execute(update_stmt)
 
