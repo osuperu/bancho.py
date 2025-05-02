@@ -25,8 +25,6 @@ async def lookup_beatmap(
     if beatmap_id is not None:
         kwargs["id"] = beatmap_id
 
-    log(f"kwargs: {kwargs}", Ansi.LGREEN)
-
     try:
         aiosu_beatmap = await services.osu_api_v2.lookup_beatmap(**kwargs)
     except aiosu.exceptions.APIException as exc:
@@ -55,7 +53,6 @@ async def get_beatmapset(
     beatmapset_id: int,
 ) -> Beatmapset | None:
     try:
-        log(f"beatmapset_id: {beatmapset_id}", Ansi.LGREEN)
         aiosu_beatmapset = await services.osu_api_v2.get_beatmapset(
             beatmapset_id=beatmapset_id,
         )
