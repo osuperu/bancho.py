@@ -44,9 +44,15 @@ env:
   REDIS_PASS: "pass"
   REDIS_PORT: "6379"
   REDIS_USER: "default"
+  OSU_API_KEY: "not relevant"
+  OSU_API_CLIENT_ID: "not relevant"
+  OSU_API_CLIENT_SECRET: "not relevant"
+  OSU_DAILY_API_KEY: "not relevant"
   SEASONAL_BGS: "https://akatsuki.pw/static/flower.png,https://i.cmyui.xyz/nrMT4V2RR3PR.jpeg"
   SSL_CERT_PATH: "not relevant"
   SSL_KEY_PATH: "not relevant"
+  HCAPTCHA_SECRET_KEY: "not relevant"
+  DISCORD_URL: "not relevant"
 
 jobs:
   run-test-suite:
