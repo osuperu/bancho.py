@@ -720,9 +720,7 @@ class BeatmapSet:
             # - should we delete the beatmap from the database if it's not in the osu!api?
             # - are 404 and 200 the only cases where we should delete the beatmap?
             if self.maps:
-                map_md5s_to_delete = {
-                    bmap.md5 for bmap in self.maps if bmap.md5 is not None
-                }
+                map_md5s_to_delete = {bmap.md5 for bmap in self.maps}
 
                 # delete maps
                 await app.state.services.database.execute(

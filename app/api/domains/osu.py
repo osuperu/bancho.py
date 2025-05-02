@@ -190,7 +190,7 @@ async def osuGetBeatmapInfo(
     num_requests = len(form_data.Filenames) + len(form_data.Ids)
     log(f"{player} requested info for {num_requests} maps.", Ansi.LCYAN)
 
-    ret = []
+    response_lines: list[str] = []
 
     for idx, map_filename in enumerate(form_data.Filenames):
         # try getting the map from sql
@@ -214,7 +214,7 @@ async def osuGetBeatmapInfo(
         ):
             grades[score["mode"]] = score["grade"]
 
-        ret.append(
+        response_lines.append(
             "{i}|{id}|{set_id}|{md5}|{status}|{grades}".format(
                 i=idx,
                 id=beatmap["id"],
@@ -230,7 +230,7 @@ async def osuGetBeatmapInfo(
             f"{player} requested map(s) info by id ({form_data.Ids})",
         )
 
-    return Response("\n".join(ret).encode())
+    return Response("\n".join(response_lines).encode())
 
 
 @router.get("/web/osu-getfavourites.php")
@@ -707,11 +707,11 @@ async def osuSubmitModularSelector(
         """ Score submission checks completed; submit the score. """
 
         if app.state.services.datadog:
-            app.state.services.datadog.increment("bancho.submitted_scores")
+            app.state.services.datadog.increment("bancho.submitted_scores")  # type: ignore[no-untyped-call]
 
         if score.status == SubmissionStatus.BEST:
             if app.state.services.datadog:
-                app.state.services.datadog.increment("bancho.submitted_scores_best")
+                app.state.services.datadog.increment("bancho.submitted_scores_best")  # type: ignore[no-untyped-call]
 
             if score.bmap.has_leaderboard:
                 if score.bmap.status == RankedStatus.Loved and score.mode in (
@@ -1111,7 +1111,7 @@ async def getReplay(
         if replay:
             # increment replay views for this score
             if score.player is not None and player.id != score.player.id:
-                app.state.loop.create_task(score.increment_replay_views())
+                app.state.loop.create_task(score.increment_replay_views())  # type: ignore[unused-awaitable]
             return Response(replay)
 
     return Response(b"", status_code=404)
@@ -1534,6 +1534,7 @@ async def getScores(
 
         map_filename = unquote_plus(map_filename)  # TODO: is unquote needed?
 
+        map_exists = False
         if has_set_id:
             # we can look it up in the specific set from cache
             for bmap in app.state.cache.beatmapset[map_set_id].maps:
@@ -1567,7 +1568,7 @@ async def getScores(
     # we've found a beatmap for the request.
 
     if app.state.services.datadog:
-        app.state.services.datadog.increment("bancho.leaderboards_served")
+        app.state.services.datadog.increment("bancho.leaderboards_served")  # type: ignore[no-untyped-call]
 
     if bmap.status < RankedStatus.Ranked:
         # only show leaderboards for ranked,
@@ -1776,14 +1777,6 @@ async def banchoConnect(
     retrying: bool | None = Query(None, alias="retry"),  # '0' or '1'
 ) -> Response:
     return Response(b"")
-
-
-_checkupdates_cache = {  # default timeout is 1h, set on request.
-    "cuttingedge": {"check": None, "path": None, "timeout": 0},
-    "stable40": {"check": None, "path": None, "timeout": 0},
-    "beta40": {"check": None, "path": None, "timeout": 0},
-    "stable": {"check": None, "path": None, "timeout": 0},
-}
 
 
 @router.get("/web/check-updates.php")
@@ -2010,7 +2003,7 @@ async def register_account(
             await stats_repo.create_all_modes(player_id=player["id"])
 
         if app.state.services.datadog:
-            app.state.services.datadog.increment("bancho.registrations")
+            app.state.services.datadog.increment("bancho.registrations")  # type: ignore[no-untyped-call]
 
         log(f"<{username} ({player['id']})> has registered!", Ansi.LGREEN)
 
