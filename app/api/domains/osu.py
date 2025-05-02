@@ -948,7 +948,8 @@ async def osuSubmitModularSelector(
 
     if not score.player.restricted:
         # enqueue new stats info to all other users
-        await score.player.update_bancho_rank()
+        if score.player.show_bancho_lb:
+            await score.player.update_bancho_rank()
         app.state.sessions.players.enqueue(app.packets.user_stats(score.player))
 
         # update beatmap with new stats
