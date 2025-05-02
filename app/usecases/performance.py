@@ -10,7 +10,6 @@ from akatsuki_pp_py import Calculator
 from akatsuki_pp_py import DifficultyAttributes
 
 from app.constants.mods import Mods
-from app.logging import log
 
 
 @dataclass

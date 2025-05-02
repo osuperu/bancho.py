@@ -5,28 +5,19 @@ from __future__ import annotations
 import base64
 import copy
 import hashlib
-import io
-import os
-import pathlib
 import random
 import secrets
-import zipfile
 from collections import defaultdict
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
-from datetime import datetime
 from enum import IntEnum
 from enum import unique
 from functools import cache
-from pathlib import Path as SystemPath
-from re import sub
 from typing import Any
-from typing import Dict
 from typing import Literal
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
-from zipfile import ZipFile
 
 import aiosu
 import bcrypt
@@ -80,7 +71,6 @@ from app.repositories import scores as scores_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
 from app.repositories.achievements import Achievement
-from app.repositories.maps import INITIAL_MAP_ID
 from app.repositories.maps import INITIAL_SET_ID
 from app.repositories.maps import MapServer
 from app.usecases import achievements as achievements_usecases
@@ -88,7 +78,6 @@ from app.usecases import maps as maps_usecases
 from app.usecases import user_achievements as user_achievements_usecases
 from app.utils import escape_enum
 from app.utils import pymysql_encode
-
 
 router = APIRouter(
     tags=["osu! web API"],
@@ -295,9 +284,9 @@ async def osuOsz2BeatmapSubmitUpload(
 
     if not full_submit:
         # User uploaded a patch file
-        current_osz2_file = OSZ2_PATH / f"{bmapset[0]['set_id']}.osz2"
+        current_osz2_file = app.state.services.storage.get_osz2(bmapset[0]["set_id"])
 
-        if not current_osz2_file:
+        if current_osz2_file is None:
             log(
                 "Failed to upload beatmap: Full submit requested but osz2 file is missing",
             )
@@ -305,11 +294,11 @@ async def osuOsz2BeatmapSubmitUpload(
 
         osz2_file = await maps_usecases.patch_osz2(
             osz2_file,
-            current_osz2_file.read_bytes(),
+            current_osz2_file,
         )
 
-    if not osz2_file:
-        pathlib.Path(OSZ2_PATH / f"{bmapset[0]['set_id']}.osz2").unlink()
+    if osz2_file is None:
+        app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
         log(f"Failed to upload beatmap: Failed to read osz2 file ({full_submit})")
         return bss_error_response(
             5,
@@ -319,8 +308,8 @@ async def osuOsz2BeatmapSubmitUpload(
     # Decrypt osz2 file
     data = await maps_usecases.decrypt_osz2(osz2_file)
 
-    if not data:
-        os.remove(OSZ2_PATH / f"{bmapset[0]['set_id']}.osz2")
+    if data is None:
+        app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
         log("Failed to upload beatmap: Failed to decrypt osz2 file")
         return bss_error_response(
             5,
@@ -393,8 +382,7 @@ async def osuOsz2BeatmapSubmitUpload(
         await maps_usecases.update_beatmap_files(files)
 
         # Upload the osz2 file to storage
-        osz2_file_path = OSZ2_PATH / f"{bmapset_id}.osz2"
-        osz2_file_path.write_bytes(osz2_file)
+        app.state.services.storage.upload_osz2(bmapset_id, osz2_file)
 
         # TODO: Update osz2 hashes
 
@@ -2193,10 +2181,10 @@ async def get_osz(
         map_set_id = map_set_id[:-1]
 
     if int(map_set_id) >= INITIAL_SET_ID:
-        osz_disk_file = OSZ_PATH / f"{map_set_id}.osz"
+        osz_disk_file = app.state.services.storage.get_osz(int(map_set_id))
 
         return Response(
-            content=osz_disk_file.read_bytes(),
+            content=osz_disk_file,
             media_type="application/x-osu-beatmap-archive",
             headers={
                 "Content-Disposition": f"attachment; filename={map_set_id}.osz",

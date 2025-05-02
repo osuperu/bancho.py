@@ -14,7 +14,6 @@ import httpx
 
 import app.settings
 import app.state
-import app.utils
 from app.adapters.osu_api_v1 import get_osu_file
 from app.adapters.osu_api_v2 import get_beatmapset
 from app.adapters.osu_api_v2 import lookup_beatmap

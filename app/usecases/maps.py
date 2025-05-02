@@ -4,12 +4,11 @@ import hashlib
 import io
 import zipfile
 from datetime import datetime
-from datetime import timedelta
 from typing import Any
-from typing import Dict
 from zipfile import ZipFile
 
 import app.settings
+import app.state
 from app import utils
 from app.constants.gamemodes import GameMode
 from app.logging import Ansi
@@ -181,16 +180,14 @@ async def is_full_submit(bmapset_id: int, osz2_hash: str) -> bool:
         # Client has no osz2 it can patch
         return True
 
-    from app.api.domains.osu import OSZ2_PATH
+    osz2_file = app.state.services.storage.get_osz2(bmapset_id)
 
-    osz2_file = OSZ2_PATH / f"{bmapset_id}.osz2"
-
-    if not osz2_file.exists():
+    if osz2_file is None:
         # We don't have an osz2 we can patch
         return True
 
     # Check if osz2 file is outdated
-    return osz2_hash != hashlib.md5(osz2_file.read_bytes()).hexdigest()
+    return osz2_hash != hashlib.md5(osz2_file).hexdigest()
 
 
 async def duplicate_beatmap_files(files: dict, creator: str) -> bool:
@@ -355,10 +352,10 @@ async def update_beatmap_package(
     zip.close()
     buffer.seek(0)
 
-    from app.api.domains.osu import OSZ_PATH
-
-    osz_disk_file = OSZ_PATH / f"{bmapset_id}.osz"
-    osz_disk_file.write_bytes(buffer.getvalue())
+    app.state.services.storage.upload_osz(
+        bmapset_id,
+        buffer.getvalue(),
+    )
 
 
 async def update_beatmap_thumbnail(bmapset_id: int, files: dict, bmaps: dict) -> None:
@@ -386,19 +383,10 @@ async def update_beatmap_thumbnail(bmapset_id: int, files: dict, bmaps: dict) ->
         target_height=120,
     )
 
-    # Delete cached thumbnails
-    await app.state.services.redis.delete(f"mt:{bmapset_id},", f"mt:{bmapset_id}:l")
-
     # Upload new thumbnail
-    from app.api.domains.osu import THUMBNAILS_PATH
-
-    thumbnail_disk_file = THUMBNAILS_PATH / f"{bmapset_id}.jpg"
-    thumbnail_disk_file.write_bytes(thumbnail)
-    await app.state.services.redis.set(
-        f"mt:{bmapset_id}",
+    app.state.services.storage.upload_beatmap_thumbnail(
+        str(bmapset_id),
         thumbnail,
-        timedelta(hours=12),
-        nx=(not True),
     )
 
 
@@ -408,10 +396,6 @@ async def update_beatmap_audio(
     bmaps: dict,
 ) -> None:
     log("Uploading beatmap audio preview...", Ansi.LCYAN)
-
-    # Delete cached preview
-    await app.state.services.redis.delete(f"mp3:{bmapset_id}")
-
     bmaps_with_audio = [
         bmap for bmap in bmaps.values() if bmap["metadata"]["audioFile"]
     ]
@@ -434,15 +418,9 @@ async def update_beatmap_audio(
     )
 
     # Upload new audio
-    from app.api.domains.osu import AUDIO_PATH
-
-    audio_disk_file = AUDIO_PATH / f"{bmapset_id}.mp3"
-    audio_disk_file.write_bytes(audio_snippet)
-    await app.state.services.redis.set(
-        f"mp3:{bmapset_id}",
+    app.state.services.storage.upload_beatmap_audio(
+        str(bmapset_id),
         audio_snippet,
-        timedelta(hours=6),
-        nx=(not True),
     )
 
 
@@ -456,15 +434,9 @@ async def update_beatmap_files(files: dict) -> None:
         bmap = await maps_repo.fetch_one(filename=filename)
         assert bmap is not None
 
-        from app.api.domains.osu import BEATMAPS_PATH
-
-        osu_disk_file = BEATMAPS_PATH / f"{bmap['id']}.osu"
-        osu_disk_file.write_bytes(content)
-        await app.state.services.redis.set(
-            f"bmap:{bmap['id']}",
+        app.state.services.storage.upload_beatmap_file(
+            bmap["id"],
             content,
-            timedelta(hours=4),
-            nx=(not True),
         )
 
 

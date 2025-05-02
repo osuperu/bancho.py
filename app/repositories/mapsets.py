@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from enum import unique
 from typing import TypedDict
 from typing import cast
 
@@ -11,8 +10,6 @@ from sqlalchemy import DateTime
 from sqlalchemy import Enum
 from sqlalchemy import Index
 from sqlalchemy import Integer
-from sqlalchemy import String
-from sqlalchemy import delete
 from sqlalchemy import func
 from sqlalchemy import insert
 from sqlalchemy import select
