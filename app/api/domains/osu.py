@@ -16,6 +16,7 @@ from enum import unique
 from functools import cache
 from typing import Any
 from typing import Literal
+from urllib.parse import quote
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 
@@ -71,6 +72,7 @@ from app.repositories import scores as scores_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
 from app.repositories.achievements import Achievement
+from app.repositories.maps import INITIAL_MAP_ID
 from app.repositories.maps import INITIAL_SET_ID
 from app.repositories.maps import MapServer
 from app.usecases import achievements as achievements_usecases
@@ -383,9 +385,6 @@ async def osuOsz2BeatmapSubmitUpload(
 
         # Upload the osz2 file to storage
         app.state.services.storage.upload_osz2(bmapset_id, osz2_file)
-
-        # TODO: Update osz2 hashes
-
     except Exception as e:
         # Rollback changes
         log(f"Failed to upload beatmap: Failed to process osz2 file ({e})")
@@ -2209,9 +2208,30 @@ async def get_updated_beatmap(
     if host == "osu.ppy.sh":
         return Response("bancho.py only supports the -devserver connection method")
 
-    return RedirectResponse(
-        url=f"https://osu.ppy.sh{request['raw_path'].decode()}",
-        status_code=status.HTTP_301_MOVED_PERMANENTLY,
+    log(f"Got map request for: {map_filename}", Ansi.GREEN)
+
+    map = await maps_repo.fetch_one(filename=map_filename)
+
+    if map is None:
+        return Response(b"", status_code=404)
+
+    if int(map["id"]) < INITIAL_MAP_ID:
+        return RedirectResponse(
+            url=f"https://osu.ppy.sh{request['raw_path'].decode()}",
+            status_code=status.HTTP_301_MOVED_PERMANENTLY,
+        )
+
+    file = app.state.services.storage.get_beatmap_file(map["id"])
+
+    if file is None:
+        return Response(b"", status_code=404)
+
+    return Response(
+        content=file,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{quote(map_filename)}"',
+        },
     )
 
 
