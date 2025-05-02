@@ -12,15 +12,11 @@ from typing import Any
 from typing import TypedDict
 from typing import TypeVar
 
-import httpx
 import pymysql
 
 import app.settings
 from app.logging import Ansi
 from app.logging import log
-
-if TYPE_CHECKING:
-    from app.repositories.users import User
 
 T = TypeVar("T")
 

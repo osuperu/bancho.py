@@ -5,7 +5,6 @@ import hashlib
 from datetime import datetime
 from enum import IntEnum
 from enum import unique
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import app.state

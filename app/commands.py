@@ -15,19 +15,15 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from datetime import timedelta
 from functools import wraps
-from pathlib import Path
 from time import perf_counter_ns as clock_ns
 from typing import TYPE_CHECKING
 from typing import Any
-from typing import Literal
 from typing import NamedTuple
 from typing import NoReturn
 from typing import Optional
 from typing import TypedDict
-from typing import cast
 from urllib.parse import urlparse
 
 import cpuinfo

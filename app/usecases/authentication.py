@@ -5,11 +5,8 @@ import secrets
 from datetime import datetime
 
 import bcrypt
-from fastapi import status
 from pydantic import BaseModel
 
-from app.api.v2.common import responses
-from app.api.v2.common.responses import Failure
 from app.constants.privileges import Privileges
 from app.repositories import tokens
 from app.repositories import users

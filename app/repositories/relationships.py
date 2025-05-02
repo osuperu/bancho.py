@@ -7,7 +7,6 @@ from typing import cast
 from sqlalchemy import Column
 from sqlalchemy import Enum
 from sqlalchemy import Integer
-from sqlalchemy import String
 from sqlalchemy import func
 from sqlalchemy import select
 

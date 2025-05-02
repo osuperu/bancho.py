@@ -4,10 +4,6 @@ from collections.abc import Iterable
 from collections.abc import Iterator
 from collections.abc import Sequence
 from typing import Any
-from typing import Literal
-from typing import cast
-
-import databases.core
 
 import app.settings
 import app.state
@@ -20,7 +16,6 @@ from app.objects.channel import Channel
 from app.objects.match import Match
 from app.objects.player import Player
 from app.repositories import channels as channels_repo
-from app.repositories import clans as clans_repo
 from app.repositories import users as users_repo
 from app.utils import make_safe_name
 

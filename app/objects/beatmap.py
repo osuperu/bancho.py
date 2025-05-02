@@ -8,7 +8,6 @@ from datetime import datetime
 from datetime import timedelta
 from enum import IntEnum
 from enum import unique
-from typing import Any
 
 import aiosu
 import httpx

@@ -27,7 +27,6 @@ try:
     import app.settings
     import app.state.services
     from app.constants.gamemodes import GameMode
-    from app.constants.mods import Mods
     from app.constants.privileges import Privileges
     from app.objects.beatmap import ensure_osu_file_is_available
 except ModuleNotFoundError:

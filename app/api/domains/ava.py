@@ -6,7 +6,6 @@ from fastapi.responses import RedirectResponse
 
 import app.state
 from app.adapters.osu_api_v1 import api_get_avatar
-from app.logging import log
 from app.repositories import users as users_repo
 
 router = APIRouter(tags=["Avatars"])

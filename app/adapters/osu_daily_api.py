@@ -9,12 +9,12 @@ from fastapi import status
 from tenacity import TryAgain
 from tenacity import retry
 from tenacity import stop_after_attempt
-from tenacity import wait_fixed
 
 import app.settings
 from app.constants.gamemodes import GameMode
 from app.logging import Ansi
 from app.logging import log
+from app.state import services
 
 
 class ClosestRankApiResponse(TypedDict):
@@ -35,7 +35,7 @@ async def get_closest_rank(pp: float, mode: GameMode) -> ClosestRankApiResponse:
         "m": mode,
     }
 
-    response = await app.state.services.http_client.get(url, params=params)
+    response = await services.http_client.get(url, params=params)
 
     if "A maintenance job is in progress." in response.content.decode("utf-8"):
         return {"data": None, "status_code": status.HTTP_503_SERVICE_UNAVAILABLE}

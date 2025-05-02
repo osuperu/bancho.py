@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-import app.settings
 from app.logging import Ansi
 from app.logging import log
 from app.utils import ASSETS_PATH

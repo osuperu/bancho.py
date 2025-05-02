@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from pathlib import Path as SystemPath
 from typing import Literal
 
 from fastapi import APIRouter

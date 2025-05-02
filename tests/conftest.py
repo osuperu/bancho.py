@@ -4,10 +4,8 @@ from collections.abc import AsyncIterator
 
 import httpx
 import pytest
-import respx
 from asgi_lifespan import LifespanManager
 from asgi_lifespan._types import ASGIApp
-from fastapi import status
 
 from app.api.init_api import asgi_app
 
