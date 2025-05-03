@@ -19,6 +19,7 @@ from app.objects.beatmap import RankedStatus
 from app.objects.player import Player
 from app.repositories import maps as maps_repo
 from app.repositories import mapsets as mapsets_repo
+from app.repositories import scores as scores_repo
 from app.repositories.maps import Map
 from app.repositories.maps import MapServer
 from app.usecases import performance
@@ -75,7 +76,10 @@ async def update_beatmaps(
         ]
 
         for bmap_id in deleted_bmaps:
-            # TODO: delete plays
+            bmap = await maps_repo.fetch_one(id=bmap_id)
+            assert bmap is not None
+
+            await scores_repo.delete_all_in_beatmap(map_md5=bmap["md5"])
             await maps_repo.delete_one(bmap_id)
 
         # TODO: delete map files from disk

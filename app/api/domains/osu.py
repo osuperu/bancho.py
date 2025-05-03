@@ -384,7 +384,6 @@ async def osuOsz2BeatmapSubmitUpload(
         # Upload the osz2 file to storage
         app.state.services.storage.upload_osz2(bmapset_id, osz2_file)
     except Exception as e:
-        # Rollback changes
         log(f"Failed to upload beatmap: Failed to process osz2 file ({e})")
         return bss_error_response(
             5,
