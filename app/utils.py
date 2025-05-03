@@ -14,7 +14,8 @@ from typing import TypeVar
 
 import pymysql
 from PIL import Image
-from pydub import AudioSegment
+from PIL.Image import Image as PILImage
+from pydub import AudioSegment  # type: ignore[import-untyped]
 
 import app.settings
 from app.logging import Ansi
@@ -177,7 +178,7 @@ def has_png_headers_and_trailers(data_view: memoryview) -> bool:
 
 
 def resize_and_crop_image(image: bytes, target_width: int, target_height: int) -> bytes:
-    img = Image.open(io.BytesIO(image))
+    img: PILImage = Image.open(io.BytesIO(image))
     image_width, image_height = img.size
 
     aspect = image_width / float(image_height)
@@ -187,13 +188,13 @@ def resize_and_crop_image(image: bytes, target_width: int, target_height: int) -
         # Crop off left and right
         new_width = int(image_height * target_aspect)
         offset = (image_width - new_width) / 2
-        box = (offset, 0, image_width - offset, image_height)
+        box = (offset, 0.0, float(image_width) - offset, float(image_height))
 
     else:
         # Crop off top and bottom
         new_height = int(image_width / target_aspect)
         offset = (image_height - new_height) / 2
-        box = (0, offset, image_width, image_height - offset)
+        box = (0.0, offset, image_width, image_height - offset)
 
     image_buffer = io.BytesIO()
     img = img.crop(box)
@@ -209,7 +210,7 @@ def resize_image(
 ) -> bytes:
     image_buffer = io.BytesIO()
 
-    img = Image.open(io.BytesIO(image))
+    img: PILImage = Image.open(io.BytesIO(image))
     img = img.resize((target_width, target_height))
     img.save(image_buffer, format="JPEG")
 
@@ -231,9 +232,9 @@ def extract_audio_snippet(
         audio_length = audio.duration_seconds * 1000
         offset_ms = audio_length / 2.5
 
-    snippet = audio[offset_ms : offset_ms + duration_ms]
+    snippet = audio[int(offset_ms) : int(offset_ms + duration_ms)]
 
     # Export snippet as mp3
     snippet_buffer = io.BytesIO()
-    snippet.export(snippet_buffer, format="mp3", bitrate=bitrate)  # type: ignore
+    snippet.export(snippet_buffer, format="mp3", bitrate=bitrate)
     return snippet_buffer.getvalue()

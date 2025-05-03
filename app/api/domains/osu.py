@@ -108,7 +108,7 @@ def bss_error_response(
     return Response(message or fallback_message)
 
 
-def integer_boolean(parameter: str) -> Callable:
+def integer_boolean(parameter: str) -> Callable[[Request], Awaitable[bool]]:
     async def wrapper(request: Request) -> bool:
         query = (await request.form()).get(parameter, "0")
         return query == "1"
@@ -294,7 +294,7 @@ async def osuOsz2BeatmapSubmitUpload(
             )
             return bss_error_response(5, "The osz2 file is missing. Please try again!")
 
-        osz2_file = await maps_usecases.patch_osz2(
+        osz2_file = await maps_usecases.patch_osz2(  # type: ignore[assignment]
             osz2_file,
             current_osz2_file,
         )
@@ -320,7 +320,7 @@ async def osuOsz2BeatmapSubmitUpload(
 
     try:
         # Decode beatmap files
-        files = {
+        files: dict[str, bytes] = {
             filename: base64.b64decode(content)
             for filename, content in data["files"].items()
         }
@@ -361,8 +361,6 @@ async def osuOsz2BeatmapSubmitUpload(
                 5,
                 "Your beatmap is too big. Try to reduce its filesize and try again!",
             )
-
-        previous_status = bmapset[0]["status"]
 
         # Update metadata for beatmapset and beatmaps
         await maps_usecases.update_beatmap_metadata(

@@ -5,6 +5,8 @@ import io
 import zipfile
 from datetime import datetime
 from typing import Any
+from typing import Tuple
+from typing import cast
 from zipfile import ZipFile
 
 import app.settings
@@ -37,22 +39,22 @@ async def resolve_beatmapset(
     # 2. The user wants to update an existing beatmapset, but doesn't know the setId
 
     # Query existing beatmap_ids that are valid
-    valid_bmaps = [
+    valid_bmaps: list[Map | None] = [
         await maps_repo.fetch_one(bmap_id) for bmap_id in bmap_ids if bmap_id >= 0
     ]
 
-    valid_bmaps = [bmap for bmap in valid_bmaps if bmap is not None]
+    filtered_valid_bmaps = [bmap for bmap in valid_bmaps if bmap is not None]
 
-    if not valid_bmaps:
+    if not filtered_valid_bmaps:
         return None
 
     # Check if all beatmaps are from the same set
-    bmapset_ids = {bmap["set_id"] for bmap in valid_bmaps}
+    bmapset_ids = {bmap["set_id"] for bmap in filtered_valid_bmaps}
 
     if len(bmapset_ids) != 1:
         return None
 
-    return valid_bmaps
+    return filtered_valid_bmaps
 
 
 async def update_beatmaps(
@@ -127,7 +129,7 @@ async def update_beatmaps(
 async def create_beatmapset(
     player: Player,
     bmap_ids: list[int],
-):
+) -> tuple[int, list[int]]:
     bmapset_id = await maps_repo.generate_next_beatmapset_id()
 
     await mapsets_repo.create(
@@ -140,7 +142,7 @@ async def create_beatmapset(
         await maps_repo.create(
             id=await maps_repo.generate_next_beatmap_id(),
             server=MapServer.PRIVATE,
-            set_id=bmapset_id,  # type: ignore
+            set_id=bmapset_id,
             status=RankedStatus.Inactive,
             md5=hashlib.md5(
                 str(await maps_repo.generate_next_beatmap_id()).encode("utf-8"),
@@ -190,7 +192,7 @@ async def is_full_submit(bmapset_id: int, osz2_hash: str) -> bool:
     return osz2_hash != hashlib.md5(osz2_file).hexdigest()
 
 
-async def duplicate_beatmap_files(files: dict, creator: str) -> bool:
+async def duplicate_beatmap_files(files: dict[str, bytes], creator: str) -> bool:
     for filename, content in files.items():
         if not filename.endswith(".osu"):
             continue
@@ -211,8 +213,8 @@ async def duplicate_beatmap_files(files: dict, creator: str) -> bool:
 
 
 async def validate_beatmap_owner(
-    beatmap_data: dict,
-    metadata: dict,
+    beatmap_data: dict[str, Any],
+    metadata: dict[str, Any],
     player: Player,
 ) -> bool:
     if metadata.get("Creator") != player.name:
@@ -264,9 +266,9 @@ async def update_beatmap_metadata(
     [
         await maps_repo.partial_update(
             id=bmap["id"],
-            artist=metadata.get("Artist"),  # type: ignore
-            title=metadata.get("Title"),  # type: ignore
-            creator=metadata.get("Creator"),  # type: ignore
+            artist=metadata.get("Artist"),  # type: ignore[arg-type]
+            title=metadata.get("Title"),  # type: ignore[arg-type]
+            creator=metadata.get("Creator"),  # type: ignore[arg-type]
             last_update=datetime.now(),
             status=RankedStatus.Pending,
         )
@@ -358,7 +360,11 @@ async def update_beatmap_package(
     )
 
 
-async def update_beatmap_thumbnail(bmapset_id: int, files: dict, bmaps: dict) -> None:
+async def update_beatmap_thumbnail(
+    bmapset_id: int,
+    files: dict[str, bytes],
+    bmaps: dict[str, Any],
+) -> None:
     log("Uploading beatmap thumbnail...", Ansi.LCYAN)
 
     background_files = [
@@ -392,8 +398,8 @@ async def update_beatmap_thumbnail(bmapset_id: int, files: dict, bmaps: dict) ->
 
 async def update_beatmap_audio(
     bmapset_id: int,
-    files: dict,
-    bmaps: dict,
+    files: dict[str, bytes],
+    bmaps: dict[str, Any],
 ) -> None:
     log("Uploading beatmap audio preview...", Ansi.LCYAN)
     bmaps_with_audio = [
@@ -424,7 +430,7 @@ async def update_beatmap_audio(
     )
 
 
-async def update_beatmap_files(files: dict) -> None:
+async def update_beatmap_files(files: dict[str, bytes]) -> None:
     log("Updating beatmap files...", Ansi.LCYAN)
 
     for filename, content in files.items():
@@ -440,7 +446,7 @@ async def update_beatmap_files(files: dict) -> None:
         )
 
 
-async def delete_inactive_beatmaps(player: Player):
+async def delete_inactive_beatmaps(player: Player) -> None:
     # Delete any inactive beatmaps
     inactive_bmapsets = await maps_repo.fetch_many(
         creator=player.name,
@@ -457,13 +463,13 @@ async def delete_inactive_beatmaps(player: Player):
 
 async def resolve_beatmap_id(
     bmap_ids: list[int],
-    bmap_data: dict,
+    bmap_data: dict[str, Any],
     filename: str,
 ) -> int:
-    bmap = bmap_data[filename]
+    bmap_file = bmap_data[filename]
 
     # Newer .osu version have the beatmap id in the metadata
-    bmap_id = bmap.get("onlineID", -1)
+    bmap_id: int = bmap_file.get("onlineID", -1)
     if bmap_id != -1:
         assert bmap_id in bmap_ids
         return bmap_id
@@ -479,7 +485,7 @@ async def resolve_beatmap_id(
 
 async def patch_osz2(patch_file: bytes, osz2: bytes) -> bytes | None:
     if not app.settings.BSS_OSZ2_SERVICE_URL:
-        return
+        return None
 
     response = await app.state.services.http_client.post(
         f"{app.settings.BSS_OSZ2_SERVICE_URL}/osz2/patch",
@@ -490,14 +496,14 @@ async def patch_osz2(patch_file: bytes, osz2: bytes) -> bytes | None:
     )
 
     if not response.status_code == 200:
-        return
+        return None
 
     return response.content
 
 
-async def decrypt_osz2(osz2_file: bytes) -> dict | None:
+async def decrypt_osz2(osz2_file: bytes) -> dict[str, Any] | None:
     if not app.settings.BSS_OSZ2_SERVICE_URL:
-        return
+        return None
 
     response = await app.state.services.http_client.post(
         f"{app.settings.BSS_OSZ2_SERVICE_URL}/osz2/decrypt",
@@ -507,6 +513,6 @@ async def decrypt_osz2(osz2_file: bytes) -> dict | None:
     )
 
     if not response.status_code == 200:
-        return
+        return None
 
-    return response.json()
+    return cast(dict[str, Any], response.json())

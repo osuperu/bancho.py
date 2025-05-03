@@ -149,9 +149,9 @@ def calculate_difficulty(bmap_file: bytes, mode: int) -> DifficultyAttributes | 
     result = calculator.difficulty(calc_bmap)
 
     if math.isnan(result.stars):
-        return
+        return None
 
     if math.isinf(result.stars):
-        return
+        return None
 
     return result
