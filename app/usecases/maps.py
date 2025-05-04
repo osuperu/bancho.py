@@ -17,8 +17,10 @@ from app.logging import Ansi
 from app.logging import log
 from app.objects.beatmap import RankedStatus
 from app.objects.player import Player
+from app.repositories import favourites as favourites_repo
 from app.repositories import maps as maps_repo
 from app.repositories import mapsets as mapsets_repo
+from app.repositories import ratings as ratings_repo
 from app.repositories import scores as scores_repo
 from app.repositories.maps import Map
 from app.repositories.maps import MapServer
@@ -82,7 +84,7 @@ async def update_beatmaps(
             await scores_repo.delete_all_in_beatmap(map_md5=bmap["md5"])
             await maps_repo.delete_one(bmap_id)
 
-        # TODO: delete map files from disk
+            app.state.services.storage.remove_beatmap_file(bmap["id"])
 
         log(f"Deleted {len(deleted_bmaps)} beatmaps", Ansi.GREEN)
         return bmap_ids
@@ -112,7 +114,7 @@ async def update_beatmaps(
                 frozen=False,
                 plays=0,
                 passes=0,
-                mode=GameMode.VANILLA_OSU,  # TODO
+                mode=GameMode.VANILLA_OSU,
                 bpm=bmapset[0]["bpm"],
                 cs=0,
                 ar=0,
@@ -162,7 +164,7 @@ async def create_beatmapset(
             frozen=False,
             plays=0,
             passes=0,
-            mode=GameMode.VANILLA_OSU,  # TODO
+            mode=GameMode.VANILLA_OSU,
             bpm=0,
             cs=0,
             ar=0,
@@ -457,12 +459,31 @@ async def delete_inactive_beatmaps(player: Player) -> None:
         status=RankedStatus.Inactive,
     )
 
-    # TODO: Remove assets (osz2, osz, bg, mp3, beatmap file) from disk
-
-    # TODO: Delete related data (favourites, ratings, scores)
-
     for bmapset in inactive_bmapsets:
-        await maps_repo.delete_one(bmapset["id"])
+        await maps_repo.delete_one(id=bmapset["id"])
+        await mapsets_repo.delete_one(id=bmapset["set_id"])
+
+        await favourites_repo.delete_favourite_from_player(
+            userid=player.id,
+            setid=bmapset["set_id"],
+        )
+        await ratings_repo.delete_rating_from_player(
+            userid=player.id,
+            map_md5=bmapset["md5"],
+        )
+        await scores_repo.delete_all_in_beatmap(
+            map_md5=bmapset["md5"],
+        )
+
+        app.state.services.storage.remove_osz2(bmapset["set_id"])
+        app.state.services.storage.remove_osz(bmapset["set_id"])
+        app.state.services.storage.remove_beatmap_thumbnail(str(bmapset["set_id"]))
+        app.state.services.storage.remove_beatmap_audio(
+            str(bmapset["set_id"]),
+        )
+        app.state.services.storage.remove_beatmap_file(
+            bmapset["id"],
+        )
 
 
 async def resolve_beatmap_id(

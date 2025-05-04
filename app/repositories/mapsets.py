@@ -10,6 +10,7 @@ from sqlalchemy import DateTime
 from sqlalchemy import Enum
 from sqlalchemy import Index
 from sqlalchemy import Integer
+from sqlalchemy import delete
 from sqlalchemy import func
 from sqlalchemy import insert
 from sqlalchemy import select
@@ -90,3 +91,15 @@ async def partial_update(
     select_stmt = select(*READ_PARAMS).where(MapsetTable.id == id)
     mapset = await app.state.services.database.fetch_one(select_stmt)
     return cast(Mapset | None, mapset)
+
+
+async def delete_one(id: int) -> Mapset | None:
+    """Delete a beatmapset entry in the database."""
+    select_stmt = select(*READ_PARAMS).where(MapsetTable.id == id)
+    mapset = await app.state.services.database.fetch_one(select_stmt)
+    if mapset is None:
+        return None
+
+    delete_stmt = delete(MapsetTable).where(MapsetTable.id == id)
+    await app.state.services.database.execute(delete_stmt)
+    return cast(Mapset, mapset)

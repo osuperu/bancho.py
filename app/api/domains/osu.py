@@ -227,8 +227,8 @@ async def osuOsz2BeatmapSubmitGetId(
                 f"{bmapset_id}",
                 ",".join(map(str, bmap_ids)),
                 f"{int(full_submit)}",
-                f"{10}",  # TODO: remaining beatmaps
-                f"{0}",  # TODO: bubbled
+                f"{10}",  # TODO: implement remaining beatmaps
+                f"{0}",  # bubbled status
             ],
         ),
     )
@@ -410,17 +410,14 @@ async def osuGetBeatmapTopic(
     player: Player = Depends(authenticate_player_session(Query, "u", "h")),
     bmapset_id: int = Query(..., alias="s"),
 ) -> Response:
-    # TODO: Fetch beatmapset
-
-    # TODO: Fetch topic (Add table or something to store beatmapset topics)
-
+    # TODO: add posts table to database
     return Response(
         "\u0003".join(
             [
                 f"0",
-                f"{1}",  # TODO: topic id
-                f'{""}',  # TODO: topic title
-                f'{""}',  # TODO: topic post content
+                f"{1}",
+                f'{""}',
+                f'{""}',
             ],
         ),
     )

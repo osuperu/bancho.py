@@ -121,6 +121,22 @@ class Storage:
                 self.remove(str(id), ext, "avatars")
                 break
 
+    def remove_beatmap_thumbnail(self, id: str) -> None:
+        log(f"Removing thumbnail for beatmap {id}", Ansi.GREEN)
+        self.remove(id, "jpg", "thumbnails")
+
+    def remove_beatmap_audio(self, id: str) -> None:
+        log(f"Removing audio for beatmap {id}", Ansi.GREEN)
+        self.remove(id, "mp3", "audio")
+
+    def remove_osz(self, id: int) -> None:
+        log(f"Removing osz with id {id}", Ansi.GREEN)
+        self.remove(str(id), "osz", "osz")
+
     def remove_osz2(self, id: int) -> None:
         log(f"Removing osz2 with id {id}", Ansi.GREEN)
         self.remove(str(id), "osz2", "osz2")
+
+    def remove_beatmap_file(self, id: int) -> None:
+        log(f"Removing beatmap file with id {id}", Ansi.GREEN)
+        self.remove(str(id), "osu", "osu")
