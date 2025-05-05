@@ -71,6 +71,9 @@ class Storage:
     def get_beatmap_thumbnail(self, id: str) -> bytes | None:
         return self.get(id, "jpg", "thumbnails")
 
+    def get_beatmap_cover(self, id: str) -> bytes | None:
+        return self.get(id, "jpg", "covers")
+
     def get_beatmap_audio(self, id: str) -> bytes | None:
         return self.get(id, "mp3", "audio")
 
@@ -104,6 +107,9 @@ class Storage:
 
     def upload_beatmap_thumbnail(self, id: str, content: bytes) -> bool:
         return self.save(id, "jpg", content, "thumbnails")
+
+    def upload_beatmap_cover(self, id: str, content: bytes) -> bool:
+        return self.save(id, "jpg", content, "covers")
 
     def upload_beatmap_audio(self, id: str, content: bytes) -> bool:
         return self.save(id, "mp3", content, "audio")

@@ -366,7 +366,7 @@ async def update_beatmap_package(
     )
 
 
-async def update_beatmap_thumbnail(
+async def update_beatmap_thumbnail_and_cover(
     bmapset_id: int,
     files: dict[str, bytes],
     bmaps: dict[str, Any],
@@ -395,10 +395,20 @@ async def update_beatmap_thumbnail(
         target_height=120,
     )
 
-    # Upload new thumbnail
+    cover = utils.resize_and_crop_image(
+        files[target_background],
+        target_width=900,
+        target_height=250,
+    )
+
     app.state.services.storage.upload_beatmap_thumbnail(
         str(bmapset_id),
         thumbnail,
+    )
+
+    app.state.services.storage.upload_beatmap_cover(
+        str(bmapset_id),
+        cover,
     )
 
 

@@ -373,7 +373,7 @@ async def osuOsz2BeatmapSubmitUpload(
         # Create & upload .osz file
         await maps_usecases.update_beatmap_package(bmapset_id, files)
 
-        await maps_usecases.update_beatmap_thumbnail(
+        await maps_usecases.update_beatmap_thumbnail_and_cover(
             bmapset_id,
             files,
             data["beatmaps"],

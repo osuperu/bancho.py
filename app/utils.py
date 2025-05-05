@@ -116,6 +116,7 @@ def ensure_persistent_volumes_are_available() -> None:
     for sub_dir in (
         "audio",
         "avatars",
+        "covers",
         "logs",
         "osu",
         "osr",
