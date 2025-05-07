@@ -1685,8 +1685,6 @@ async def get_bancho_leaderboard(
             score_rows,
             personal_best_score_row,
         )
-        personal_best_score_row.pop("name")
-        personal_best_score_row.pop("userid")
 
     return score_rows, personal_best_score_row
 
@@ -1949,8 +1947,6 @@ async def getScores(
         response_lines.append(
             SCORE_LISTING_FMTSTR.format(
                 **personal_best_score_row,
-                name=display_name,
-                userid=player.id,
                 score=int(round(personal_best_score_row["_score"])),
                 has_replay="1",
             ),
