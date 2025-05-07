@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 import app.state
 from app import utils
 from app.repositories.maps import INITIAL_MAP_ID
+from app.repositories.maps import INITIAL_SET_ID
 
 router = APIRouter(tags=["Beatmaps"])
 
@@ -71,5 +72,28 @@ async def preview(file: str = Path(...)) -> Response:
 
     return RedirectResponse(
         url=f"https://b.ppy.sh/preview/{file}",
+        status_code=status.HTTP_301_MOVED_PERMANENTLY,
+    )
+
+
+@router.get("/cover/{beatmapset_id}")
+async def cover(beatmapset_id: str = Path(...)) -> Response:
+    if int(beatmapset_id) >= INITIAL_SET_ID:
+        cover_file = app.state.services.storage.get_beatmap_cover(beatmapset_id)
+
+        if cover_file is not None:
+            return Response(
+                status_code=status.HTTP_200_OK,
+                media_type="image/jpeg",
+                content=cover_file,
+            )
+        else:
+            return Response(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content="Cover not found",
+            )
+
+    return RedirectResponse(
+        url=f"https://assets.ppy.sh/beatmaps/{beatmapset_id}/covers/cover.jpg",
         status_code=status.HTTP_301_MOVED_PERMANENTLY,
     )
