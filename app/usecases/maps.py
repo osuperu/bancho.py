@@ -176,7 +176,7 @@ async def create_beatmapset(
     ]
 
     log(
-        f"Created new beatmapset ({new_bmaps[0]["set_id"]} for user {player.name})",
+        f"Created new beatmapset ({new_bmaps[0]['set_id']} for user {player.name})",
         Ansi.GREEN,
     )
 
