@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1
 
@@ -7,6 +7,9 @@ WORKDIR /srv/root
 RUN apt update && apt install --no-install-recommends -y \
     git curl build-essential=12.9 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 COPY pyproject.toml poetry.lock ./
 RUN pip install -U pip poetry

@@ -16,6 +16,7 @@ from enum import unique
 from functools import cache
 from typing import Any
 from typing import Literal
+from urllib.parse import quote
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 
@@ -71,7 +72,11 @@ from app.repositories import scores as scores_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
 from app.repositories.achievements import Achievement
+from app.repositories.maps import INITIAL_MAP_ID
+from app.repositories.maps import INITIAL_SET_ID
+from app.repositories.maps import MapServer
 from app.usecases import achievements as achievements_usecases
+from app.usecases import maps as maps_usecases
 from app.usecases import user_achievements as user_achievements_usecases
 from app.utils import escape_enum
 from app.utils import pymysql_encode
@@ -80,6 +85,35 @@ router = APIRouter(
     tags=["osu! web API"],
     default_response_class=Response,
 )
+
+
+def bss_error_response(
+    error_code: int,
+    message: str = "",
+    legacy: bool = False,
+) -> Response:
+    if not legacy:
+        return Response(f"{error_code}\n{message}")
+
+    message_dict = {
+        1: "The beatmap you're trying to submit isn't owned by you.",
+        2: "The beatmap you're trying to submit is no longer available.",
+        3: "The beatmap is already ranked. You cannot update ranked maps.",
+        4: "The beatmap is currently in the beatmap graveyard. You can ungraveyard your map by visiting the beatmaps section of your user profile.",
+        5: "An error occurred while processing your beatmap.",
+    }
+
+    fallback_message = message_dict.get(error_code, "An unknown error occurred.")
+
+    return Response(message or fallback_message)
+
+
+def integer_boolean(parameter: str) -> Callable[[Request], Awaitable[bool]]:
+    async def wrapper(request: Request) -> bool:
+        query = (await request.form()).get(parameter, "0")
+        return query == "1"
+
+    return wrapper
 
 
 @cache
@@ -118,6 +152,275 @@ def authenticate_player_session(
 # POST /web/osu-osz2-bmsubmit-upload.php
 # GET /web/osu-osz2-bmsubmit-getid.php
 # GET /web/osu-get-beatmap-topic.php
+
+
+@router.get("/web/osu-osz2-bmsubmit-getid.php")
+async def osuOsz2BeatmapSubmitGetId(
+    player: Player = Depends(authenticate_player_session(Query, "u", "h")),
+    bmap_ids_str: str = Query(..., alias="b"),
+    osz2_hash: str = Query(..., alias="z"),
+    bmapset_id: int = Query(..., alias="s"),
+) -> Response:
+    if not app.settings.BSS_OSZ2_SERVICE_URL:
+        log("The osz2-service url was not found. Aborting...", Ansi.LYELLOW)
+        return bss_error_response(
+            5,
+            "The beatmap submission system is currently disabled. Please try again later!",
+        )
+
+    bmap_ids = list(map(int, bmap_ids_str.split(",")))
+
+    await maps_usecases.delete_inactive_beatmaps(player)
+
+    bmapset = await maps_usecases.resolve_beatmapset(bmapset_id, bmap_ids)
+
+    if bmapset:
+        # User wants to update an existing beatmapset
+        bmapset_id = bmapset[0]["set_id"]
+
+        if bmapset[0]["creator"] != player.name:
+            log(
+                "Failed to update beatmapset: User does not own the beatmapset",
+                Ansi.LRED,
+            )
+            return bss_error_response(1)
+
+        if bmapset[0]["server"] != MapServer.PRIVATE:
+            log(
+                "Failed to update beatmapset: Beatmapset is not on bancho.py",
+                Ansi.LRED,
+            )
+            return bss_error_response(1)
+
+        if any(bmap["status"] > RankedStatus.Pending for bmap in bmapset):
+            log(
+                "Failed to update beatmapset: There are ranked/loved beatmaps",
+                Ansi.LRED,
+            )
+            return bss_error_response(3)
+
+        # Create/Remove new beatmaps if neccesary
+        bmap_ids = await maps_usecases.update_beatmaps(
+            bmap_ids,
+            bmapset,
+        )
+
+        log(f"{player.name} wants to update a beatmapset ({bmapset_id})", Ansi.LCYAN)
+    else:
+        # Create a new empty beatmapset inside the database
+        bmapset_id, bmap_ids = await maps_usecases.create_beatmapset(player, bmap_ids)
+
+        if bmapset_id is None:
+            return bss_error_response(
+                5,
+                "An error ocurred while creating the beatmapset.",
+            )
+
+    # Either we don't have the osz2 file or the client has no osz2 file
+    # If full-submit is true, the client will submit a patch file
+    full_submit = await maps_usecases.is_full_submit(bmapset_id, osz2_hash)
+
+    return Response(
+        "\n".join(
+            [
+                "0",
+                f"{bmapset_id}",
+                ",".join(map(str, bmap_ids)),
+                f"{int(full_submit)}",
+                f"{10}",  # TODO: implement remaining beatmaps
+                f"{0}",  # bubbled status
+            ],
+        ),
+    )
+
+
+@router.post("/web/osu-osz2-bmsubmit-upload.php")
+async def osuOsz2BeatmapSubmitUpload(
+    player: Player = Depends(authenticate_player_session(Form, "u", "h")),
+    full_submit: bool = Depends(integer_boolean("t")),
+    submission_file: UploadFile = File(..., alias="osz2"),
+    osz2_hash: str | None = Form(None, alias="z"),
+    bmapset_id: int = Form(..., alias="s"),
+) -> Response:
+    if not app.settings.BSS_OSZ2_SERVICE_URL:
+        log("The osz2-service url was not found. Aborting...", Ansi.LYELLOW)
+        return bss_error_response(
+            5,
+            "The beatmap submission system is currently disabled. Please try again later!",
+        )
+
+    bmapset = await maps_repo.fetch_many(
+        set_id=bmapset_id,
+    )
+
+    if not bmapset:
+        log("Failed to update beatmapset: Beatmapset not found", Ansi.LRED)
+        return bss_error_response(
+            5,
+            "The beatmapset you are trying to upload to does not exist. Please try again!",
+        )
+
+    if bmapset[0]["creator"] != player.name:
+        log("Failed to update beatmapset: User does not own the beatmapset", Ansi.LRED)
+        return bss_error_response(1)
+
+    if bmapset[0]["server"] != MapServer.PRIVATE:
+        log(
+            "Failed to update beatmapset: Beatmapset is not on bancho.py",
+            Ansi.LRED,
+        )
+        return bss_error_response(1)
+
+    if any(bmap["status"] > RankedStatus.Pending for bmap in bmapset):
+        log("Failed to update beatmapset: There are ranked/loved beatmaps", Ansi.LRED)
+        return bss_error_response(3)
+
+    osz2_file = submission_file.file.read()
+
+    if len(osz2_file) > app.settings.BSS_BEATMAPSET_MAX_SIZE * 1000000:
+        log("Failed to upload beatmap: osz2 file is too large")
+        return bss_error_response(
+            5,
+            "Your beatmap is too big. Try to reduce its filesize and try again!",
+        )
+
+    if not full_submit:
+        # User uploaded a patch file
+        current_osz2_file = app.state.services.storage.get_osz2(bmapset[0]["set_id"])
+
+        if current_osz2_file is None:
+            log(
+                "Failed to upload beatmap: Full submit requested but osz2 file is missing",
+            )
+            return bss_error_response(5, "The osz2 file is missing. Please try again!")
+
+        osz2_file = await maps_usecases.patch_osz2(  # type: ignore[assignment]
+            osz2_file,
+            current_osz2_file,
+        )
+
+    if osz2_file is None:
+        app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
+        log(f"Failed to upload beatmap: Failed to read osz2 file ({full_submit})")
+        return bss_error_response(
+            5,
+            "Something went wrong while processing your beatmap. Please try again!",
+        )
+
+    # Decrypt osz2 file
+    data = await maps_usecases.decrypt_osz2(osz2_file)
+
+    if data is None:
+        app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
+        log("Failed to upload beatmap: Failed to decrypt osz2 file")
+        return bss_error_response(
+            5,
+            "Something went wrong while processing your beatmap. Please try again!",
+        )
+
+    try:
+        # Decode beatmap files
+        files: dict[str, bytes] = {
+            filename: base64.b64decode(content)
+            for filename, content in data["files"].items()
+        }
+
+        # Check if the user is trying to upload someone else's beatmap
+        if await maps_usecases.duplicate_beatmap_files(files, player.name):
+            log(f"Failed to upload beatmap: Duplicate beatmap files")
+            return bss_error_response(
+                5,
+                "It seems like one of your beatmaps was already uploaded by someone else. Please try again!",
+            )
+
+        if not await maps_usecases.validate_beatmap_owner(
+            data["beatmaps"],
+            data["metadata"],
+            player,
+        ):
+            log(f"Failed to upload beatmap: User does not own the beatmapset")
+            return bss_error_response(1)
+
+        max_bmap_length = max(
+            bmap["length"] / 1000 for bmap in data["beatmaps"].values()
+        )
+
+        if max_bmap_length <= app.settings.BSS_BEATMAPSET_MIN_LENGTH:
+            log(f"Failed to upload beatmap: Beatmap length is too short")
+            return bss_error_response(
+                5,
+                "Your beatmap is too short. Please try to make it longer and try again!",
+            )
+
+        package_filesize = await maps_usecases.calculate_package_size(files)
+        size_limit = await maps_usecases.calculate_size_limit(max_bmap_length)
+
+        if package_filesize > size_limit:
+            log(f"Failed to upload beatmap: Beatmap package is too large")
+            return bss_error_response(
+                5,
+                "Your beatmap is too big. Try to reduce its filesize and try again!",
+            )
+
+        # Update metadata for beatmapset and beatmaps
+        await maps_usecases.update_beatmap_metadata(
+            bmapset,
+            files,
+            data["metadata"],
+            data["beatmaps"],
+        )
+
+        # Create & upload .osz file
+        await maps_usecases.update_beatmap_package(bmapset_id, files)
+
+        await maps_usecases.update_beatmap_thumbnail_and_cover(
+            bmapset_id,
+            files,
+            data["beatmaps"],
+        )
+        await maps_usecases.update_beatmap_audio(bmapset_id, files, data["beatmaps"])
+        await maps_usecases.update_beatmap_files(files)
+
+        # Upload the osz2 file to storage
+        app.state.services.storage.upload_osz2(bmapset_id, osz2_file)
+    except Exception as e:
+        log(f"Failed to upload beatmap: Failed to process osz2 file ({e})")
+        return bss_error_response(
+            5,
+            "Something went wrong while processing your beatmap. Please try again!",
+        )
+
+    for bmap in bmapset:
+        if app.state.cache.beatmap.get(bmap["id"]):
+            app.state.cache.beatmap.pop(bmap["id"])
+
+    if app.state.cache.beatmapset.get(bmapset[0]["set_id"]):
+        app.state.cache.beatmapset.pop(bmapset[0]["set_id"])
+
+    log(
+        f"{player.name} successfully {"uploaded" if full_submit else "updated"} a beatmapset",
+        Ansi.LCYAN,
+    )
+
+    return Response("0")
+
+
+@router.get("/web/osu-get-beatmap-topic.php")
+async def osuGetBeatmapTopic(
+    player: Player = Depends(authenticate_player_session(Query, "u", "h")),
+    bmapset_id: int = Query(..., alias="s"),
+) -> Response:
+    # TODO: add posts table to database
+    return Response(
+        "\u0003".join(
+            [
+                f"0",
+                f"{1}",
+                f'{""}',
+                f'{""}',
+            ],
+        ),
+    )
 
 
 @router.post("/web/osu-screenshot.php")
@@ -394,54 +697,71 @@ async def osuSearchHandler(
 
     result = response.json()
 
-    lresult = len(result)  # send over 100 if we receive
-    # 100 matches, so the client
-    # knows there are more to get
-    ret = [f"{'101' if lresult == 100 else lresult}"]
+    # Fetch beatmapsets uploaded on bancho.py
+    bpy_bmapsets = await maps_repo.fetch_many(
+        mode=None if mode == -1 else GameMode(mode),
+        status=RankedStatus.from_osudirect(ranked_status),
+        page=page_num + 1,
+        page_size=100,
+        server=MapServer.PRIVATE,
+    )
+
+    normalized_result = []
     for bmapset in result:
-        if bmapset["ChildrenBeatmaps"] is None:
-            continue
+        for child in bmapset["ChildrenBeatmaps"]:
+            normalized_result.append(
+                {
+                    "id": child["BeatmapID"],
+                    "set_id": bmapset["SetID"],
+                    "status": bmapset["RankedStatus"],
+                    "md5": child["FileMD5"],
+                    "artist": bmapset["Artist"],
+                    "title": bmapset["Title"],
+                    "version": child["DiffName"],
+                    "creator": bmapset["Creator"],
+                    "filename": None,
+                    "last_update": bmapset["LastUpdate"],
+                    "total_length": child["TotalLength"],
+                    "max_combo": child["MaxCombo"],
+                    "frozen": 0,
+                    "plays": child["Playcount"],
+                    "passes": child["Passcount"],
+                    "mode": child["Mode"],
+                    "bpm": child["BPM"],
+                    "cs": child["CS"],
+                    "ar": child["AR"],
+                    "od": child["OD"],
+                    "hp": child["HP"],
+                    "diff": child["DifficultyRating"],
+                },
+            )
 
-        # some mirrors use a true/false instead of 0 or 1
-        bmapset["HasVideo"] = int(bmapset["HasVideo"])
+    combined_results = bpy_bmapsets + normalized_result
 
-        diff_sorted_maps = sorted(
-            bmapset["ChildrenBeatmaps"],
-            key=lambda m: m["DifficultyRating"],
-        )
+    unique_results = {bmap["set_id"]: bmap for bmap in combined_results}.values()
 
-        def handle_invalid_characters(s: str) -> str:
-            # XXX: this is a bug that exists on official servers (lmao)
-            # | is used to delimit the set data, so the difficulty name
-            # cannot contain this or it will be ignored. we fix it here
-            # by using a different character.
-            return s.replace("|", "I")
+    # Format results for the client
+    ret = [f"{'101' if len(unique_results) == 100 else len(unique_results)}"]
 
-        diffs_str = ",".join(
-            [
-                DIRECT_MAP_INFO_FMTSTR.format(
-                    DifficultyRating=row["DifficultyRating"],
-                    DiffName=handle_invalid_characters(row["DiffName"]),
-                    CS=row["CS"],
-                    OD=row["OD"],
-                    AR=row["AR"],
-                    HP=row["HP"],
-                    Mode=row["Mode"],
-                )
-                for row in diff_sorted_maps
-            ],
-        )
-
+    for bmap in unique_results:
         ret.append(
             DIRECT_SET_INFO_FMTSTR.format(
-                Artist=handle_invalid_characters(bmapset["Artist"]),
-                Title=handle_invalid_characters(bmapset["Title"]),
-                Creator=bmapset["Creator"],
-                RankedStatus=bmapset["RankedStatus"],
-                LastUpdate=bmapset["LastUpdate"],
-                SetID=bmapset["SetID"],
-                HasVideo=bmapset["HasVideo"],
-                diffs=diffs_str,
+                SetID=bmap["set_id"],
+                Artist=bmap["artist"],
+                Title=bmap["title"],
+                Creator=bmap["creator"],
+                RankedStatus=bmap["status"],
+                LastUpdate=bmap["last_update"],
+                HasVideo=0,  # Not available in `bpy_bmapsets` or `result`
+                diffs=DIRECT_MAP_INFO_FMTSTR.format(
+                    DifficultyRating=bmap["diff"],
+                    DiffName=bmap["version"],
+                    CS=bmap["cs"],
+                    OD=bmap["od"],
+                    AR=bmap["ar"],
+                    HP=bmap["hp"],
+                    Mode=bmap["mode"],
+                ),
             ),
         )
 
@@ -1365,8 +1685,6 @@ async def get_bancho_leaderboard(
             score_rows,
             personal_best_score_row,
         )
-        personal_best_score_row.pop("name")
-        personal_best_score_row.pop("userid")
 
     return score_rows, personal_best_score_row
 
@@ -1629,8 +1947,6 @@ async def getScores(
         response_lines.append(
             SCORE_LISTING_FMTSTR.format(
                 **personal_best_score_row,
-                name=display_name,
-                userid=player.id,
                 score=int(round(personal_best_score_row["_score"])),
                 has_replay="1",
             ),
@@ -1853,6 +2169,17 @@ async def get_osz(
     if no_video:
         map_set_id = map_set_id[:-1]
 
+    if int(map_set_id) >= INITIAL_SET_ID:
+        osz_disk_file = app.state.services.storage.get_osz(int(map_set_id))
+
+        return Response(
+            content=osz_disk_file,
+            media_type="application/x-osu-beatmap-archive",
+            headers={
+                "Content-Disposition": f"attachment; filename={map_set_id}.osz",
+            },
+        )
+
     query_str = f"{map_set_id}?n={int(not no_video)}"
 
     return RedirectResponse(
@@ -1871,9 +2198,30 @@ async def get_updated_beatmap(
     if host == "osu.ppy.sh":
         return Response("bancho.py only supports the -devserver connection method")
 
-    return RedirectResponse(
-        url=f"https://osu.ppy.sh{request['raw_path'].decode()}",
-        status_code=status.HTTP_301_MOVED_PERMANENTLY,
+    log(f"Got map request for: {map_filename}", Ansi.GREEN)
+
+    map = await maps_repo.fetch_one(filename=map_filename)
+
+    if map is None:
+        return Response(b"", status_code=404)
+
+    if int(map["id"]) < INITIAL_MAP_ID:
+        return RedirectResponse(
+            url=f"https://osu.ppy.sh{request['raw_path'].decode()}",
+            status_code=status.HTTP_301_MOVED_PERMANENTLY,
+        )
+
+    file = app.state.services.storage.get_beatmap_file(map["id"])
+
+    if file is None:
+        return Response(b"", status_code=404)
+
+    return Response(
+        content=file,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{quote(map_filename)}"',
+        },
     )
 
 

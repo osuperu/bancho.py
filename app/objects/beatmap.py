@@ -14,13 +14,13 @@ import httpx
 
 import app.settings
 import app.state
-import app.utils
 from app.adapters.osu_api_v1 import get_osu_file
 from app.adapters.osu_api_v2 import get_beatmapset
 from app.adapters.osu_api_v2 import lookup_beatmap
 from app.constants.gamemodes import GameMode
 from app.logging import log
 from app.repositories import maps as maps_repo
+from app.repositories.maps import MapServer
 from app.utils import escape_enum
 from app.utils import pymysql_encode
 
@@ -79,6 +79,7 @@ class RankedStatus(IntEnum):
     Same as used in osu!'s /web/getscores.php.
     """
 
+    Inactive = -3  # used in beatmap submission
     NotSubmitted = -1
     Pending = 0
     UpdateAvailable = 1
@@ -249,6 +250,7 @@ class Beatmap:
         hp: float = 0.0,
         diff: float = 0.0,
         filename: str = "",
+        server: MapServer = MapServer.OSU,
     ) -> None:
         self.set = map_set
 
@@ -274,6 +276,7 @@ class Beatmap:
         self.hp = hp
         self.diff = diff
         self.filename = filename
+        self.server = server
 
     def __repr__(self) -> str:
         return self.full_name
@@ -719,25 +722,29 @@ class BeatmapSet:
             # - should we delete the beatmap from the database if it's not in the osu!api?
             # - are 404 and 200 the only cases where we should delete the beatmap?
             if self.maps:
-                map_md5s_to_delete = {bmap.md5 for bmap in self.maps}
+                map_md5s_to_delete = {
+                    bmap.md5 for bmap in self.maps if bmap.server == MapServer.OSU
+                }
 
-                # delete maps
+                if map_md5s_to_delete:
+                    # delete maps
+                    await app.state.services.database.execute(
+                        "DELETE FROM maps WHERE md5 IN :map_md5s",
+                        {"map_md5s": map_md5s_to_delete},
+                    )
+
+                    # delete scores on the maps
+                    await app.state.services.database.execute(
+                        "DELETE FROM scores WHERE map_md5 IN :map_md5s",
+                        {"map_md5s": map_md5s_to_delete},
+                    )
+
+            if self.maps[0].server == MapServer.OSU:
+                # delete set
                 await app.state.services.database.execute(
-                    "DELETE FROM maps WHERE md5 IN :map_md5s",
-                    {"map_md5s": map_md5s_to_delete},
+                    "DELETE FROM mapsets WHERE id = :set_id",
+                    {"set_id": self.id},
                 )
-
-                # delete scores on the maps
-                await app.state.services.database.execute(
-                    "DELETE FROM scores WHERE map_md5 IN :map_md5s",
-                    {"map_md5s": map_md5s_to_delete},
-                )
-
-            # delete set
-            await app.state.services.database.execute(
-                "DELETE FROM mapsets WHERE id = :set_id",
-                {"set_id": self.id},
-            )
 
     async def _save_to_sql(self) -> None:
         """Save the object's attributes into the database."""
@@ -831,6 +838,7 @@ class BeatmapSet:
                 diff=row["diff"],
                 filename=row["filename"],
                 map_set=bmap_set,
+                server=MapServer(row["server"]),
             )
 
             # XXX: tempfix for bancho.py <v3.4.1,

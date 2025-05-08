@@ -68,6 +68,21 @@ class Storage:
     def get_screenshot(self, id: str, extension: str) -> bytes | None:
         return self.get(id, extension, "ss")
 
+    def get_beatmap_thumbnail(self, id: str) -> bytes | None:
+        return self.get(id, "jpg", "thumbnails")
+
+    def get_beatmap_cover(self, id: str) -> bytes | None:
+        return self.get(id, "jpg", "covers")
+
+    def get_beatmap_audio(self, id: str) -> bytes | None:
+        return self.get(id, "mp3", "audio")
+
+    def get_osz(self, id: int) -> bytes | None:
+        return self.get(str(id), "osz", "osz")
+
+    def get_osz2(self, id: int) -> bytes | None:
+        return self.get(str(id), "osz2", "osz2")
+
     def get_avatar(self, id: str, extension: str) -> bytes | None:
         return self.get(id, extension, "avatars")
 
@@ -90,9 +105,44 @@ class Storage:
     def upload_screenshot(self, id: str, extension: str, content: bytes) -> bool:
         return self.save(id, extension, content, "ss")
 
+    def upload_beatmap_thumbnail(self, id: str, content: bytes) -> bool:
+        return self.save(id, "jpg", content, "thumbnails")
+
+    def upload_beatmap_cover(self, id: str, content: bytes) -> bool:
+        return self.save(id, "jpg", content, "covers")
+
+    def upload_beatmap_audio(self, id: str, content: bytes) -> bool:
+        return self.save(id, "mp3", content, "audio")
+
+    def upload_osz(self, id: int, content: bytes) -> bool:
+        return self.save(str(id), "osz", content, "osz")
+
+    def upload_osz2(self, id: int, content: bytes) -> bool:
+        return self.save(str(id), "osz2", content, "osz2")
+
     def remove_avatar(self, id: int) -> None:
         log(f"Removing avatar for user {id}", Ansi.GREEN)
         for ext in ("jpg", "png"):
             if self.file_exists(str(id), ext, "avatars"):
                 self.remove(str(id), ext, "avatars")
                 break
+
+    def remove_beatmap_thumbnail(self, id: str) -> None:
+        log(f"Removing thumbnail for beatmap {id}", Ansi.GREEN)
+        self.remove(id, "jpg", "thumbnails")
+
+    def remove_beatmap_audio(self, id: str) -> None:
+        log(f"Removing audio for beatmap {id}", Ansi.GREEN)
+        self.remove(id, "mp3", "audio")
+
+    def remove_osz(self, id: int) -> None:
+        log(f"Removing osz with id {id}", Ansi.GREEN)
+        self.remove(str(id), "osz", "osz")
+
+    def remove_osz2(self, id: int) -> None:
+        log(f"Removing osz2 with id {id}", Ansi.GREEN)
+        self.remove(str(id), "osz2", "osz2")
+
+    def remove_beatmap_file(self, id: int) -> None:
+        log(f"Removing beatmap file with id {id}", Ansi.GREEN)
+        self.remove(str(id), "osu", "osu")

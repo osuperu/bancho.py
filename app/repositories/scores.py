@@ -10,6 +10,7 @@ from sqlalchemy import DateTime
 from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import String
+from sqlalchemy import delete
 from sqlalchemy import func
 from sqlalchemy import insert
 from sqlalchemy import select
@@ -266,4 +267,15 @@ async def aggregate_pp_stats(
     return cast(int, rec["sum_pp"])
 
 
-# TODO: delete
+async def delete_all_in_beatmap(map_md5: str) -> list[Score]:
+    """Delete all map pool entries from a given tourney pool from the database."""
+    select_stmt = select(*READ_PARAMS).where(ScoresTable.map_md5 == map_md5)
+    scores = await app.state.services.database.fetch_all(select_stmt)
+    if not scores:
+        return []
+
+    delete_stmt = delete(ScoresTable).where(
+        ScoresTable.map_md5 == map_md5,
+    )
+    await app.state.services.database.execute(delete_stmt)
+    return cast(list[Score], scores)
