@@ -398,7 +398,7 @@ async def osuOsz2BeatmapSubmitUpload(
         app.state.cache.beatmapset.pop(bmapset[0]["set_id"])
 
     log(
-        f"{player.name} successfully {"uploaded" if full_submit else "updated"} a beatmapset",
+        f"{player.name} successfully {'uploaded' if full_submit else 'updated'} a beatmapset",
         Ansi.LCYAN,
     )
 
