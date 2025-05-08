@@ -486,8 +486,6 @@ class Beatmap:
         # if a map is 'frozen', we keep its status
         # even after an update from the osu!api.
         if not getattr(self, "frozen", False):
-            log(f"beatmap.status.id: {beatmap.status.id}")
-            log(f"From osuapi: {RankedStatus.from_osuapi(beatmap.status.id)}")
             self.status = RankedStatus.from_osuapi(beatmap.status.id)
 
         self.mode = GameMode(beatmap.mode.id)
