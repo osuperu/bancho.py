@@ -860,7 +860,7 @@ async def api_get_global_leaderboard(
     sort: Literal["tscore", "rscore", "pp", "acc", "plays", "playtime"] = "pp",
     mode_arg: int = Query(0, alias="mode", ge=0, le=11),
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, min=0, max=2_147_483_647),
+    page: int = Query(1, min=0, max=2_147_483_647),
     country: str | None = Query(None, min_length=2, max_length=2),
 ) -> Response:
     if mode_arg in (
@@ -893,7 +893,7 @@ async def api_get_global_leaderboard(
         "LEFT JOIN clans c ON u.clan_id = c.id "
         f"WHERE {' AND '.join(query_conditions)} "
         f"ORDER BY s.{sort} DESC LIMIT :offset, :limit",
-        query_parameters | {"offset": offset, "limit": limit},
+        query_parameters | {"offset": (page - 1) * limit, "limit": limit},
     )
 
     return ORJSONResponse(
