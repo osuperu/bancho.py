@@ -17,7 +17,9 @@ def create_beatmapset_status_change_embed(
     embed = Embed(
         title=f"New beatmapset added to {status}:",
         url=f"https://{app.settings.DOMAIN}/b/{bmapset.maps[0].id}",
-        thumbnail=Thumbnail(url=f"https://b.ppy.sh/thumb/{bmapset.id}l.jpg"),
+        thumbnail=Thumbnail(
+            url=f"https://b.{app.settings.DOMAIN}/thumb/{bmapset.id}l.jpg",
+        ),
     )
     embed.add_field(
         name=f"{bmapset.maps[0].artist} - {bmapset.maps[0].title}",
@@ -41,7 +43,9 @@ def create_beatmap_status_change_embed(
     embed = Embed(
         title=f"New beatmap added to {status}:",
         url=f"https://{app.settings.DOMAIN}/b/{bmap.id}",
-        thumbnail=Thumbnail(url=f"https://b.ppy.sh/thumb/{bmap.set_id}l.jpg"),
+        thumbnail=Thumbnail(
+            url=f"https://b.{app.settings.DOMAIN}/thumb/{bmap.set_id}l.jpg",
+        ),
     )
     embed.add_field(
         name=f"{bmap.artist} - {bmap.title} [{bmap.version}]",
