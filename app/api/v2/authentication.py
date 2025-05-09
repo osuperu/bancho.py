@@ -257,7 +257,7 @@ async def register(request: Request, args: RegistrationRequest) -> Any:
 
     country = geoloc["country"]["acronym"] if geoloc is not None else "xx"
 
-    if country != "PE":
+    if country != "pe":
         return responses.failure(
             message="Registration is only available to Peruvian players.",
             status_code=status.HTTP_400_BAD_REQUEST,
