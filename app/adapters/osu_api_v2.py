@@ -66,7 +66,7 @@ async def get_beatmapset(
             f"Failed to get beatmapset {beatmapset_id} from osu! api v2: {exc}",
             Ansi.LRED,
         )
-        return None
+        raise
 
     if aiosu_beatmapset is None:
         log(

@@ -613,13 +613,7 @@ class BeatmapSet:
 
         try:
             api_response = await get_beatmapset(beatmapset_id=self.id)
-        except (httpx.TransportError, httpx.DecodingError):
-            # NOTE: TransportError is directly caused by the API being unavailable
-
-            # NOTE: DecodingError is caused by the API returning HTML and
-            #       normally happens when CF protection is enabled while
-            #       osu! recovers from a DDOS attack
-
+        except Exception:
             # we do not want to delete the beatmap in this case, so we simply return
             # but do not set the last check, as we would like to retry these ASAP
 
