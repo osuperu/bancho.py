@@ -8,8 +8,16 @@
 
 c.{$DOMAIN}, ce.{$DOMAIN}, c4.{$DOMAIN}, osu.{$DOMAIN}, b.{$DOMAIN}, api.{$DOMAIN}, a.{$DOMAIN} {
 	encode gzip
-	reverse_proxy * 127.0.0.1:{$APP_PORT} {
-		header_up X-Real-IP {remote_host}
+	handle {
+		header Access-Control-Allow-Origin "{http.request.header.Origin}"
+		header Access-Control-Allow-Credentials "true"
+
+		reverse_proxy 127.0.0.1:{$APP_PORT} {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up Host {host}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
 	request_body {
@@ -22,3 +30,6 @@ assets.{$DOMAIN} {
 	root * {$ASSETS_DIRECTORY}
 	file_server
 }
+
+# Development frontend server
+#import {$FRONTEND_DIRECTORY}/ext/Caddyfile
