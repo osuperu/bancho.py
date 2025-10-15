@@ -205,10 +205,12 @@ name = "aiosu"
 version = "2.3.2"
 description = "Simple and fast osu! API v1 and v2 library"
 optional = false
-python-versions = ">=3.9,<4.0"
+python-versions = "<4.0,>=3.9"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "aiosu-2.3.2-py3-none-any.whl", hash = "sha256:26db6560693fba33cd57694c07dd8ebe38de08237b3715ba8edcce8858155b38"},
+    {file = "aiosu-2.3.2.tar.gz", hash = "sha256:33befd0312c6a2fbc0e71ef8b84441edec5d600e6333fbdc39398237f25c05f9"},
+]
 
 [package.dependencies]
 aiohttp = ">=3.8.3"
@@ -221,12 +223,6 @@ pyjwt = ">=2.6.0"
 [package.extras]
 docs = ["Sphinx", "furo", "toml"]
 test = ["pytest", "pytest-asyncio", "pytest-mock", "toml", "types-toml"]
-
-[package.source]
-type = "git"
-url = "https://github.com/NiceAesth/aiosu.git"
-reference = "HEAD"
-resolved_reference = "2e815076339c7a9f6abf84695c6102dc95e25590"
 
 [[package]]
 name = "akatsuki-pp-py"
@@ -3198,4 +3194,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.13"
-content-hash = "b135d85c0d7292adfc633b617abba509175f63ad2dd0079788bf526ef474dd46"
+content-hash = "b579c16a706a2bae328e2cfd42d1e81715eec4b9690d20adeb6da5442351df52"
