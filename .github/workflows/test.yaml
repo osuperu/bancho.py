@@ -32,6 +32,7 @@ env:
   DISALLOWED_NAMES: "mrekk,vaxei,btmc,cookiezi"
   DISALLOWED_PASSWORDS: "password,abc123"
   DISALLOW_OLD_CLIENTS: "False"
+  DISALLOW_BEATMAP_SUBMISSIONS: "True"
   DOMAIN: "cmyui.xyz"
   MENU_ICON_URL: "https://akatsuki.pw/static/logos/logo_ingame.png"
   MENU_ONCLICK_URL: "https://akatsuki.pw"
@@ -53,8 +54,6 @@ env:
   SSL_KEY_PATH: "not relevant"
   HCAPTCHA_SECRET_KEY: "not relevant"
   DISCORD_URL: "not relevant"
-  BSS_BEATMAPSET_MAX_SIZE: "50"
-  BSS_BEATMAPSET_MIN_LENGTH: "1"
   DB_USE_SSL: "false"
 
 jobs:

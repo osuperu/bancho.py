@@ -206,13 +206,13 @@ def resize_and_crop_image(image: bytes, target_width: int, target_height: int) -
 
 def resize_image(
     image: bytes,
-    target_width: int | None = None,
-    target_height: int | None = None,
+    target_width: int,
+    target_height: int,
 ) -> bytes:
     image_buffer = io.BytesIO()
 
     img: PILImage = Image.open(io.BytesIO(image))
-    img = img.resize((target_width, target_height))
+    img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
     img.save(image_buffer, format="JPEG")
 
     return image_buffer.getvalue()

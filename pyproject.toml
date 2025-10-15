@@ -83,6 +83,8 @@ pillow = "^11.2.1"
 audioop-lts = "^0.2.1"
 aiosu = "^2.3.2"
 pozalabs-pydub = "^0.37.0"
+osz2 = "^1.0.6"
+slider = {git = "https://github.com/OliBomby/slider", rev = "bg"}
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "3.6.1"

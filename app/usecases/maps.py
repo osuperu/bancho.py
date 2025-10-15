@@ -8,15 +8,23 @@ from typing import Any
 from typing import Tuple
 from typing import cast
 from zipfile import ZipFile
+from zipfile import ZipInfo
+
+from osz2 import File  # type: ignore[import-untyped]
+from osz2 import MetadataType
+from osz2 import apply_bsdiff_patch
+from slider import Beatmap  # type: ignore[import-untyped]
 
 import app.settings
 import app.state
+from app import bss
 from app import utils
 from app.constants.gamemodes import GameMode
 from app.logging import Ansi
 from app.logging import log
 from app.objects.beatmap import RankedStatus
 from app.objects.player import Player
+from app.osz2 import InternalOsz2
 from app.repositories import favourites as favourites_repo
 from app.repositories import maps as maps_repo
 from app.repositories import mapsets as mapsets_repo
@@ -198,73 +206,50 @@ async def is_full_submit(bmapset_id: int, osz2_hash: str) -> bool:
     return osz2_hash != hashlib.md5(osz2_file).hexdigest()
 
 
-async def duplicate_beatmap_files(files: dict[str, bytes], creator: str) -> bool:
-    for filename, content in files.items():
-        if not filename.endswith(".osu"):
+async def duplicate_beatmap_files(
+    bmapset: list[Map],
+    files: list[File],
+) -> bool:
+    """Check for duplicate beatmap filenames & checksums"""
+    for file in files:
+        if not file.filename.endswith(".osu"):
             continue
 
-        beatmap = await maps_repo.fetch_one(filename=filename)
-        if beatmap is not None:
-            if beatmap["creator"] != creator:
+        beatmap = await maps_repo.fetch_one(filename=file.filename)
+        if beatmap:
+            if beatmap["creator"] != bmapset[0]["creator"]:
                 return True
 
-        beatmap_hash = hashlib.md5(content).hexdigest()
+        file_checksum = hashlib.md5(file.content).hexdigest()
 
-        beatmap = await maps_repo.fetch_one(md5=beatmap_hash)
-        if beatmap is not None:
-            if beatmap["creator"] != creator:
+        beatmap = await maps_repo.fetch_one(md5=file_checksum)
+        if beatmap:
+            if beatmap["creator"] != bmapset[0]["creator"]:
                 return True
 
     return False
 
 
-async def validate_beatmap_owner(
-    beatmap_data: dict[str, Any],
-    metadata: dict[str, Any],
-    player: Player,
+def validate_beatmap_owner(
+    metadata: dict[MetadataType, str],
+    beatmaps: dict[str, Beatmap],
+    allowed_usernames: list[str],
 ) -> bool:
-    if metadata.get("Creator") != player.name:
+    if metadata.get(MetadataType.Creator) not in allowed_usernames:
         return False
 
-    for beatmap in beatmap_data.values():
-        if beatmap["metadata"]["author"]["username"] != player.name:
+    for beatmap in beatmaps.values():
+        if beatmap.creator not in allowed_usernames:
             return False
 
     return True
 
 
-async def calculate_package_size(files: dict[str, bytes]) -> int:
-    buffer = io.BytesIO()
-    osz = ZipFile(buffer, "w", zipfile.ZIP_DEFLATED)
-
-    for filename, data in files.items():
-        osz.writestr(filename, data)
-
-    osz.close()
-    size = len(buffer.getvalue())
-
-    del buffer
-    del osz
-    return size
-
-
-async def calculate_size_limit(bmap_length: int) -> int:
-    # The file size limit is 10MB plus an additional 10MB for
-    # every minute of beatmap length, and it caps at the configured
-    # maximum size.
-    return int(
-        min(
-            10_000_000 + (10_000_000 * (bmap_length / 60)),
-            app.settings.BSS_BEATMAPSET_MAX_SIZE * 1000000,
-        ),
-    )
-
-
 async def update_beatmap_metadata(
     bmapset: list[Map],
-    files: dict[str, bytes],
-    metadata: dict[str, str | None],
-    bmap_data: dict[str, Any],
+    files: list[File],
+    metadata: dict[MetadataType, str],
+    bmap_data: dict[str, Beatmap],
 ) -> None:
     log("Updating beatmap metadata", Ansi.LCYAN)
 
@@ -272,47 +257,50 @@ async def update_beatmap_metadata(
     [
         await maps_repo.partial_update(
             id=bmap["id"],
-            artist=metadata.get("Artist"),  # type: ignore[arg-type]
-            title=metadata.get("Title"),  # type: ignore[arg-type]
-            creator=metadata.get("Creator"),  # type: ignore[arg-type]
+            artist=metadata.get(MetadataType.Artist),  # type: ignore[arg-type]
+            title=metadata.get(MetadataType.Title),  # type: ignore[arg-type]
+            creator=metadata.get(MetadataType.Creator),  # type: ignore[arg-type]
             last_update=datetime.now(),
             status=RankedStatus.Pending,
         )
         for bmap in bmapset
     ]
 
+    bmap_files = {
+        file.filename: file for file in files if file.filename.endswith(".osu")
+    }
+
     bmap_ids = sorted([bmap["id"] for bmap in bmapset])
 
     assert len(bmap_ids) == len(bmap_data)
 
     for filename, bmap in bmap_data.items():
-        difficulty_attributes = performance.calculate_difficulty(
-            files[filename],
-            bmap["ruleset"]["onlineID"],
-        )
-
         bmap_id = await resolve_beatmap_id(
             bmap_ids,
-            bmap_data,
+            bmap,
             filename,
         )
-
-        assert difficulty_attributes is not None
         assert bmap_id is not None
+
+        difficulty_attributes = performance.calculate_difficulty(
+            bmap_files[filename].content,
+            bmap.mode,
+        )
+        assert difficulty_attributes is not None
 
         await maps_repo.partial_update(
             id=bmap_id,
             filename=filename,
             last_update=datetime.now(),
-            total_length=round(bmap["length"] / 1000),
-            md5=hashlib.md5(files[filename]).hexdigest(),
-            version=bmap["difficultyName"] or "Normal",
-            mode=bmap["ruleset"]["onlineID"],
-            bpm=bmap["bpm"],
-            hp=bmap["difficulty"]["drainRate"],
-            cs=bmap["difficulty"]["circleSize"],
-            od=bmap["difficulty"]["overallDifficulty"],
-            ar=bmap["difficulty"]["approachRate"],
+            total_length=round(bss.calculate_beatmap_total_length(bmap) / 1000),
+            md5=hashlib.md5(bmap_files[filename].content).hexdigest(),
+            version=bmap.version or "Normal",
+            mode=bmap.mode,
+            bpm=bss.calculate_beatmap_median_bpm(bmap),
+            hp=bmap.hp(),
+            cs=bmap.cs(),
+            od=bmap.od(),
+            ar=bmap.ar(),
             max_combo=difficulty_attributes.max_combo,
             diff=difficulty_attributes.stars,
         )
@@ -320,63 +308,26 @@ async def update_beatmap_metadata(
 
 async def update_beatmap_package(
     bmapset_id: int,
-    files: dict[str, bytes],
+    files: list[File],
 ) -> None:
     log("Updating beatmap package", Ansi.LCYAN)
 
-    allowed_file_extensions = [
-        ".osu",
-        ".osz",
-        ".osb",
-        ".osk",
-        ".png",
-        ".mp3",
-        ".jpeg",
-        ".wav",
-        ".png",
-        ".wav",
-        ".ogg",
-        ".jpg",
-        ".wmv",
-        ".flv",
-        ".mp3",
-        ".flac",
-        ".mp4",
-        ".avi",
-        ".ini",
-        ".jpg",
-        ".m4v",
-    ]
+    osz_package = bss.create_osz_package(files)
 
-    buffer = io.BytesIO()
-    zip = ZipFile(buffer, "w", zipfile.ZIP_DEFLATED)
-
-    for filename, data in files.items():
-        if not any(filename.endswith(ext) for ext in allowed_file_extensions):
-            continue
-
-        zip.writestr(filename, data)
-
-    zip.close()
-    buffer.seek(0)
-
-    app.state.services.storage.upload_osz(
-        bmapset_id,
-        buffer.getvalue(),
-    )
+    app.state.services.storage.upload_osz(bmapset_id, osz_package)
 
 
 async def update_beatmap_thumbnail_and_cover(
-    bmapset_id: int,
-    files: dict[str, bytes],
-    bmaps: dict[str, Any],
+    bmapset: list[Map],
+    bmaps: dict[str, Beatmap],
+    files: list[File],
 ) -> None:
     log("Uploading beatmap thumbnail...", Ansi.LCYAN)
 
+    filenames = [file.filename for file in files]
+
     background_files = [
-        bmap["metadata"]["backgroundFile"]
-        for bmap in bmaps.values()
-        if bmap["metadata"]["backgroundFile"]
+        beatmap.background for beatmap in bmaps.values() if beatmap.background
     ]
 
     if not background_files:
@@ -385,80 +336,85 @@ async def update_beatmap_thumbnail_and_cover(
 
     target_background = background_files[0]
 
-    if target_background not in files:
+    if target_background not in filenames:
         log("Background file not found. Skipping...", Ansi.YELLOW)
         return
 
+    background_file = next(file for file in files if file.filename == target_background)
+
     thumbnail = utils.resize_and_crop_image(
-        files[target_background],
+        background_file.content,
         target_width=160,
         target_height=120,
     )
 
     cover = utils.resize_and_crop_image(
-        files[target_background],
+        background_file.content,
         target_width=900,
         target_height=250,
     )
 
     app.state.services.storage.upload_beatmap_thumbnail(
-        str(bmapset_id),
+        str(bmapset[0]["set_id"]),
         thumbnail,
     )
 
     app.state.services.storage.upload_beatmap_cover(
-        str(bmapset_id),
+        str(bmapset[0]["set_id"]),
         cover,
     )
 
 
 async def update_beatmap_audio(
-    bmapset_id: int,
-    files: dict[str, bytes],
-    bmaps: dict[str, Any],
+    bmapset: list[Map],
+    bmaps: dict[str, Beatmap],
+    files: list[File],
 ) -> None:
-    log("Uploading beatmap audio preview...", Ansi.LCYAN)
-    bmaps_with_audio = [
-        bmap for bmap in bmaps.values() if bmap["metadata"]["audioFile"]
-    ]
+    log(f"Uploading beatmap audio preview...", Ansi.LCYAN)
+    bmaps_with_audio = [beatmap for beatmap in bmaps.values() if beatmap.audio_filename]
 
     if not bmaps_with_audio:
         log(f"Audio file not specified. Skipping...")
         return
 
-    target_bmap = bmaps_with_audio[0]
-    audio_file = target_bmap["metadata"]["audioFile"]
-    audio_offset = target_bmap["metadata"]["previewTime"]
+    target_beatmap = bmaps_with_audio[0]
+    audio_filename = target_beatmap.audio_filename
+    audio_offset = target_beatmap.preview_time.total_seconds() * 1000
 
-    if audio_file not in files:
+    audio_file = next((file for file in files if file.filename == audio_filename), None)
+
+    if not audio_file:
         log(f"Audio file not found. Skipping...")
         return
 
     audio_snippet = utils.extract_audio_snippet(
-        files[audio_file],
+        audio_file.content,
         offset_ms=audio_offset,
     )
 
     # Upload new audio
     app.state.services.storage.upload_beatmap_audio(
-        str(bmapset_id),
+        str(bmapset[0]["set_id"]),
         audio_snippet,
     )
 
 
-async def update_beatmap_files(files: dict[str, bytes]) -> None:
-    log("Updating beatmap files...", Ansi.LCYAN)
+async def update_beatmap_files(files: list[File]) -> None:
+    log(f"Uploading beatmap files...", Ansi.LCYAN)
 
-    for filename, content in files.items():
-        if not filename.endswith(".osu"):
+    for file in files:
+        if not file.filename.endswith(".osu"):
             continue
 
-        bmap = await maps_repo.fetch_one(filename=filename)
-        assert bmap is not None
+        bmap = await maps_repo.fetch_one(filename=file.filename)
+
+        if not bmap:
+            log(f'Beatmap file "{file.filename}" not found in database. Skipping...')
+            continue
 
         app.state.services.storage.upload_beatmap_file(
             bmap["id"],
-            content,
+            file.content,
         )
 
 
@@ -469,7 +425,11 @@ async def delete_inactive_beatmaps(player: Player) -> None:
         status=RankedStatus.Inactive,
     )
 
+    log(f"Found {len(inactive_bmapsets)} inactive beatmaps.", Ansi.LCYAN)
+
     for bmapset in inactive_bmapsets:
+        await remove_all_beatmap_files(bmapset["set_id"])
+
         await maps_repo.delete_one(id=bmapset["id"])
         await mapsets_repo.delete_one(id=bmapset["set_id"])
 
@@ -485,69 +445,46 @@ async def delete_inactive_beatmaps(player: Player) -> None:
             map_md5=bmapset["md5"],
         )
 
-        app.state.services.storage.remove_osz2(bmapset["set_id"])
-        app.state.services.storage.remove_osz(bmapset["set_id"])
-        app.state.services.storage.remove_beatmap_thumbnail(str(bmapset["set_id"]))
-        app.state.services.storage.remove_beatmap_audio(
-            str(bmapset["set_id"]),
-        )
-        app.state.services.storage.remove_beatmap_file(
-            bmapset["id"],
-        )
+
+async def remove_all_beatmap_files(bmapset_id: int) -> None:
+    app.state.services.storage.remove_osz2(bmapset_id)
+    app.state.services.storage.remove_osz(bmapset_id)
+    app.state.services.storage.remove_beatmap_thumbnail(str(bmapset_id))
+    app.state.services.storage.remove_beatmap_audio(str(bmapset_id))
+
+    bmaps = await maps_repo.fetch_many(set_id=bmapset_id)
+    for bmap in bmaps:
+        app.state.services.storage.remove_beatmap_file(bmap["id"])
 
 
 async def resolve_beatmap_id(
     bmap_ids: list[int],
-    bmap_data: dict[str, Any],
+    bmap: Beatmap,
     filename: str,
 ) -> int:
-    bmap_file = bmap_data[filename]
-
     # Newer .osu version have the beatmap id in the metadata
-    bmap_id: int = bmap_file.get("onlineID", -1)
-    if bmap_id != -1:
-        assert bmap_id in bmap_ids
+    bmap_id: int = bmap.beatmap_id
+    if bmap_id is not None:
         return bmap_id
 
     # Try to get the beatmap id from the filename
-    bmap = await maps_repo.fetch_one(filename=filename)
-    if bmap is not None:
-        bmap_ids.remove(bmap["id"])
-        return bmap["id"]
+    bmap_object = await maps_repo.fetch_one(filename=filename)
+    if bmap_object is not None:
+        bmap_ids.remove(bmap_object["id"])
+
+        bmap.beatmap_id = bmap_object["id"]
+        return bmap_object["id"]
 
     return bmap_ids.pop(0)
 
 
-async def patch_osz2(patch_file: bytes, osz2: bytes) -> bytes | None:
-    if not app.settings.BSS_OSZ2_SERVICE_URL:
-        return None
-
-    response = await app.state.services.http_client.post(
-        f"{app.settings.BSS_OSZ2_SERVICE_URL}/osz2/patch",
-        files={
-            "patch": patch_file,
-            "osz2": osz2,
-        },
-    )
-
-    if not response.status_code == 200:
-        return None
-
-    return response.content
+def patch_osz2(osz2_patch: bytes, osz2_source: bytes) -> bytes:
+    return bytes(apply_bsdiff_patch(osz2_source, osz2_patch))
 
 
-async def decrypt_osz2(osz2_file: bytes) -> dict[str, Any] | None:
-    if not app.settings.BSS_OSZ2_SERVICE_URL:
-        return None
+def decrypt_osz2(osz2_file: bytes) -> InternalOsz2 | None:
+    return InternalOsz2.from_bytes(osz2_file)
 
-    response = await app.state.services.http_client.post(
-        f"{app.settings.BSS_OSZ2_SERVICE_URL}/osz2/decrypt",
-        files={
-            "osz2": osz2_file,
-        },
-    )
 
-    if not response.status_code == 200:
-        return None
-
-    return cast(dict[str, Any], response.json())
+def parse_beatmap(osu_file: bytes) -> Beatmap | None:
+    return Beatmap.parse(osu_file.decode(errors="ignore"))

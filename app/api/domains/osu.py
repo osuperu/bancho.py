@@ -43,6 +43,7 @@ import app.packets
 import app.settings
 import app.state
 import app.utils
+from app import bss
 from app import encryption
 from app._typing import UNSET
 from app.adapters.osu_api_v1 import get_replay
@@ -149,9 +150,6 @@ def authenticate_player_session(
 # POST /web/osu-error.php
 # POST /web/osu-session.php
 # POST /web/osu-osz2-bmsubmit-post.php
-# POST /web/osu-osz2-bmsubmit-upload.php
-# GET /web/osu-osz2-bmsubmit-getid.php
-# GET /web/osu-get-beatmap-topic.php
 
 
 @router.get("/web/osu-osz2-bmsubmit-getid.php")
@@ -161,8 +159,11 @@ async def osuOsz2BeatmapSubmitGetId(
     osz2_hash: str = Query(..., alias="z"),
     bmapset_id: int = Query(..., alias="s"),
 ) -> Response:
-    if not app.settings.BSS_OSZ2_SERVICE_URL:
-        log("The osz2-service url was not found. Aborting...", Ansi.LYELLOW)
+    if app.settings.DISALLOW_BEATMAP_SUBMISSION:
+        log(
+            "The beatmap submission system is currently disabled. Aborting...",
+            Ansi.YELLOW,
+        )
         return bss_error_response(
             5,
             "The beatmap submission system is currently disabled. Please try again later!",
@@ -242,8 +243,11 @@ async def osuOsz2BeatmapSubmitUpload(
     osz2_hash: str | None = Form(None, alias="z"),
     bmapset_id: int = Form(..., alias="s"),
 ) -> Response:
-    if not app.settings.BSS_OSZ2_SERVICE_URL:
-        log("The osz2-service url was not found. Aborting...", Ansi.LYELLOW)
+    if app.settings.DISALLOW_BEATMAP_SUBMISSION:
+        log(
+            "The beatmap submission system is currently disabled. Aborting...",
+            Ansi.YELLOW,
+        )
         return bss_error_response(
             5,
             "The beatmap submission system is currently disabled. Please try again later!",
@@ -273,11 +277,11 @@ async def osuOsz2BeatmapSubmitUpload(
 
     if any(bmap["status"] > RankedStatus.Pending for bmap in bmapset):
         log("Failed to update beatmapset: There are ranked/loved beatmaps", Ansi.LRED)
-        return bss_error_response(3)
+        return bss_error_response(4)
 
     osz2_file = submission_file.file.read()
 
-    if len(osz2_file) > app.settings.BSS_BEATMAPSET_MAX_SIZE * 1000000:
+    if len(osz2_file) > 100_000_000:  # 100mb
         log("Failed to upload beatmap: osz2 file is too large")
         return bss_error_response(
             5,
@@ -294,7 +298,7 @@ async def osuOsz2BeatmapSubmitUpload(
             )
             return bss_error_response(5, "The osz2 file is missing. Please try again!")
 
-        osz2_file = await maps_usecases.patch_osz2(  # type: ignore[assignment]
+        osz2_file = maps_usecases.patch_osz2(
             osz2_file,
             current_osz2_file,
         )
@@ -307,10 +311,23 @@ async def osuOsz2BeatmapSubmitUpload(
             "Something went wrong while processing your beatmap. Please try again!",
         )
 
-    # Decrypt osz2 file
-    data = await maps_usecases.decrypt_osz2(osz2_file)
+    # Verify osz2 hash
+    server_hash = hashlib.md5(osz2_file).hexdigest()
 
-    if data is None:
+    if osz2_hash and osz2_hash != server_hash:
+        app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
+        log(
+            f"Failed to upload beatmap: osz2 hash mismatch (client: {osz2_hash} / server: {server_hash})",
+        )
+        return bss_error_response(
+            5,
+            "Something went wrong while processing your beatmap. Please try again!",
+        )
+
+    # Decrypt osz2 file
+    osz2 = maps_usecases.decrypt_osz2(osz2_file)
+
+    if osz2 is None:
         app.state.services.storage.remove_osz2(bmapset[0]["set_id"])
         log("Failed to upload beatmap: Failed to decrypt osz2 file")
         return bss_error_response(
@@ -319,44 +336,42 @@ async def osuOsz2BeatmapSubmitUpload(
         )
 
     try:
-        # Decode beatmap files
-        files: dict[str, bytes] = {
-            filename: base64.b64decode(content)
-            for filename, content in data["files"].items()
-        }
-
-        # Check if the user is trying to upload someone else's beatmap
-        if await maps_usecases.duplicate_beatmap_files(files, player.name):
+        if await maps_usecases.duplicate_beatmap_files(bmapset, osz2.files):
             log(f"Failed to upload beatmap: Duplicate beatmap files")
             return bss_error_response(
                 5,
                 "It seems like one of your beatmaps was already uploaded by someone else. Please try again!",
             )
 
-        if not await maps_usecases.validate_beatmap_owner(
-            data["beatmaps"],
-            data["metadata"],
-            player,
+        allowed_usernames = [
+            bmapset[0]["creator"],
+        ]
+
+        if not maps_usecases.validate_beatmap_owner(
+            osz2.metadata,
+            osz2.beatmaps,
+            allowed_usernames,
         ):
             log(f"Failed to upload beatmap: User does not own the beatmapset")
             return bss_error_response(1)
 
-        max_bmap_length = max(
-            bmap["length"] / 1000 for bmap in data["beatmaps"].values()
-        )
+        max_bmap_length = bss.maximum_beatmap_length(list(osz2.beatmaps.values()))
 
-        if max_bmap_length <= app.settings.BSS_BEATMAPSET_MIN_LENGTH:
+        if max_bmap_length <= 1:
             log(f"Failed to upload beatmap: Beatmap length is too short")
             return bss_error_response(
                 5,
                 "Your beatmap is too short. Please try to make it longer and try again!",
             )
 
-        package_filesize = await maps_usecases.calculate_package_size(files)
-        size_limit = await maps_usecases.calculate_size_limit(max_bmap_length)
+        package_filesize = bss.calculate_osz_size(osz2.files)
+        size_limit = bss.calculate_size_limit(max_bmap_length)
 
         if package_filesize > size_limit:
-            log(f"Failed to upload beatmap: Beatmap package is too large")
+            log(
+                f"Failed to upload beatmap: Beatmap package is too large "
+                f"({package_filesize} / {size_limit} bytes)",
+            )
             return bss_error_response(
                 5,
                 "Your beatmap is too big. Try to reduce its filesize and try again!",
@@ -365,21 +380,24 @@ async def osuOsz2BeatmapSubmitUpload(
         # Update metadata for beatmapset and beatmaps
         await maps_usecases.update_beatmap_metadata(
             bmapset,
-            files,
-            data["metadata"],
-            data["beatmaps"],
+            osz2.files,
+            osz2.metadata,
+            osz2.beatmaps,
         )
 
         # Create & upload .osz file
-        await maps_usecases.update_beatmap_package(bmapset_id, files)
+        await maps_usecases.update_beatmap_package(
+            bmapset[0]["set_id"],
+            osz2.files,
+        )
 
         await maps_usecases.update_beatmap_thumbnail_and_cover(
-            bmapset_id,
-            files,
-            data["beatmaps"],
+            bmapset,
+            osz2.beatmaps,
+            osz2.files,
         )
-        await maps_usecases.update_beatmap_audio(bmapset_id, files, data["beatmaps"])
-        await maps_usecases.update_beatmap_files(files)
+        await maps_usecases.update_beatmap_audio(bmapset, osz2.beatmaps, osz2.files)
+        await maps_usecases.update_beatmap_files(osz2.files)
 
         # Upload the osz2 file to storage
         app.state.services.storage.upload_osz2(bmapset_id, osz2_file)
