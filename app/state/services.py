@@ -379,7 +379,7 @@ async def check_for_dependency_updates() -> None:
     if updates_available:
         log(
             "Python modules can be updated with "
-            "`python3.11 -m pip install -U <modules>`.",
+            "`python3.13 -m pip install -U <modules>`.",
             Ansi.LMAGENTA,
         )
 
