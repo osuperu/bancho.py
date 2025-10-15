@@ -55,6 +55,7 @@ env:
   DISCORD_URL: "not relevant"
   BSS_BEATMAPSET_MAX_SIZE: "50"
   BSS_BEATMAPSET_MIN_LENGTH: "1"
+  DB_USE_SSL: "false"
 
 jobs:
   run-test-suite:
