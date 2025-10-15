@@ -32,7 +32,7 @@ env:
   DISALLOWED_NAMES: "mrekk,vaxei,btmc,cookiezi"
   DISALLOWED_PASSWORDS: "password,abc123"
   DISALLOW_OLD_CLIENTS: "False"
-  DISALLOW_BEATMAP_SUBMISSIONS: "True"
+  DISALLOW_BEATMAP_SUBMISSION: "True"
   DOMAIN: "cmyui.xyz"
   MENU_ICON_URL: "https://akatsuki.pw/static/logos/logo_ingame.png"
   MENU_ONCLICK_URL: "https://akatsuki.pw"
