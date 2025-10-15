@@ -282,6 +282,37 @@ async def fetch_many(
     return cast(list[Map], maps)
 
 
+async def search(
+    query: str,
+    server: str | None = None,
+    mode: int | None = None,
+    status: int | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
+) -> list[Map]:
+    """Search for maps in the database."""
+    like_query = f"%{query}%"
+    select_stmt = select(*READ_PARAMS).where(
+        MapsTable.artist.ilike(like_query)
+        | MapsTable.title.ilike(like_query)
+        | MapsTable.creator.ilike(like_query)
+        | MapsTable.version.ilike(like_query),
+    )
+
+    if server is not None:
+        select_stmt = select_stmt.where(MapsTable.server == server)
+    if mode is not None:
+        select_stmt = select_stmt.where(MapsTable.mode == mode)
+    if status is not None:
+        select_stmt = select_stmt.where(MapsTable.status == status)
+
+    if page is not None and page_size is not None:
+        select_stmt = select_stmt.limit(page_size).offset((page - 1) * page_size)
+
+    maps = await app.state.services.database.fetch_all(select_stmt)
+    return cast(list[Map], maps)
+
+
 async def partial_update(
     id: int,
     server: str | _UnsetSentinel = UNSET,

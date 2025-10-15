@@ -716,12 +716,13 @@ async def osuSearchHandler(
     result = response.json()
 
     # Fetch beatmapsets uploaded on bancho.py
-    bpy_bmapsets = await maps_repo.fetch_many(
+    bpy_bmapsets = await maps_repo.search(
         mode=None if mode == -1 else GameMode(mode),
         status=RankedStatus.from_osudirect(ranked_status),
         page=page_num + 1,
         page_size=100,
         server=MapServer.PRIVATE,
+        query=params.get("query", ""),
     )
 
     normalized_result = []
