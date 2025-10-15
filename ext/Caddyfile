@@ -8,6 +8,16 @@
 
 c.{$DOMAIN}, ce.{$DOMAIN}, c4.{$DOMAIN}, osu.{$DOMAIN}, b.{$DOMAIN}, api.{$DOMAIN}, a.{$DOMAIN} {
 	encode gzip
+
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin "{http.request.header.Origin}"
+		header Access-Control-Allow-Credentials "true"
+		header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+		header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+		respond "" 204
+	}
+
 	handle {
 		header Access-Control-Allow-Origin "{http.request.header.Origin}"
 		header Access-Control-Allow-Credentials "true"
