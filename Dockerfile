@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /srv/root
 
 RUN apt update && apt install --no-install-recommends -y \
-    git curl build-essential=12.9 \
+    git curl build-essential=12.12 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
