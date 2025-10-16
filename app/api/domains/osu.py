@@ -683,6 +683,12 @@ DIRECT_MAP_INFO_FMTSTR = (
     "{{cs: {CS} / od: {OD} / ar: {AR} / hp: {HP}}}@{Mode}"
 )
 
+def handle_invalid_characters(s: str) -> str:
+    # XXX: this is a bug that exists on official servers (lmao)
+    # | is used to delimit the set data, so the difficulty name
+    # cannot contain this or it will be ignored. we fix it here
+    # by using a different character.
+    return s.replace("|", "I")
 
 @router.get("/web/osu-search.php")
 async def osuSearchHandler(
@@ -770,9 +776,6 @@ async def osuSearchHandler(
     lresult = len(unique_beatmapsets)
     ret = [f"{'101' if lresult == 100 else lresult}"]
 
-    def sanitize(s: str) -> str:
-        return s.replace("|", "I")
-
     for bmapset in unique_beatmapsets.values():
         if not bmapset["ChildrenBeatmaps"]:
             continue
@@ -786,7 +789,7 @@ async def osuSearchHandler(
         diffs_str = ",".join(
             DIRECT_MAP_INFO_FMTSTR.format(
                 DifficultyRating=row["DifficultyRating"],
-                DiffName=sanitize(row["DiffName"]),
+                DiffName=handle_invalid_characters(row["DiffName"]),
                 CS=row["CS"], OD=row["OD"], AR=row["AR"], HP=row["HP"],
                 Mode=row["Mode"],
             ) for row in sorted_diffs
@@ -795,8 +798,8 @@ async def osuSearchHandler(
         ret.append(
             DIRECT_SET_INFO_FMTSTR.format(
                 SetID=bmapset["SetID"],
-                Artist=sanitize(bmapset["Artist"]),
-                Title=sanitize(bmapset["Title"]),
+                Artist=handle_invalid_characters(bmapset["Artist"]),
+                Title=handle_invalid_characters(bmapset["Title"]),
                 Creator=bmapset["Creator"],
                 RankedStatus=bmapset["RankedStatus"],
                 LastUpdate=bmapset["LastUpdate"],
