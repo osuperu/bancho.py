@@ -730,6 +730,8 @@ async def osuSearchHandler(
         server=MapServer.PRIVATE,
         query=params.get("query", ""),
     )
+    # reverse list to show newest first
+    bpy_bmapsets = list(reversed(bpy_bmapsets))
 
     # Process local beatmapsets into a lookup dict
     local_beatmapsets = {}
@@ -754,7 +756,7 @@ async def osuSearchHandler(
         })
 
     # Combine results (locals first, then catboy excluding duplicates)
-    unique_beatmapsets = {**local_beatmapsets}
+    unique_beatmapsets = dict(local_beatmapsets)
     
     for bmapset in result:
         if not bmapset.get("ChildrenBeatmaps"):
