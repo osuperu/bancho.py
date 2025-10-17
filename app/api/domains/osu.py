@@ -683,6 +683,12 @@ DIRECT_MAP_INFO_FMTSTR = (
     "{{cs: {CS} / od: {OD} / ar: {AR} / hp: {HP}}}@{Mode}"
 )
 
+def handle_invalid_characters(text: str) -> str:
+    # XXX: this is a bug that exists on official servers (lmao)
+    # | is used to delimit the set data, so the difficulty name
+    # cannot contain this or it will be ignored. we fix it here
+    # by using a different character.
+    return text.replace("|", "I")
 
 @router.get("/web/osu-search.php")
 async def osuSearchHandler(
@@ -724,64 +730,84 @@ async def osuSearchHandler(
         server=MapServer.PRIVATE,
         query=params.get("query", ""),
     )
+    # reverse list to show newest first
+    bpy_bmapsets = list(reversed(bpy_bmapsets))
 
-    normalized_result = []
+    # Process local beatmapsets into a lookup dict
+    local_beatmapsets = {}
+    for bmap in bpy_bmapsets:
+        set_id = bmap["set_id"]
+        if set_id not in local_beatmapsets:
+            local_beatmapsets[set_id] = {
+                "SetID": set_id,
+                "Artist": bmap["artist"],
+                "Title": bmap["title"], 
+                "Creator": bmap["creator"],
+                "RankedStatus": bmap["status"],
+                "LastUpdate": bmap["last_update"],
+                "HasVideo": 0,
+                "ChildrenBeatmaps": []
+            }
+        local_beatmapsets[set_id]["ChildrenBeatmaps"].append({
+            "DifficultyRating": bmap["diff"],
+            "DiffName": bmap["version"],
+            "CS": bmap["cs"], "OD": bmap["od"], "AR": bmap["ar"], "HP": bmap["hp"],
+            "Mode": bmap["mode"]
+        })
+
+    # Combine results (locals first, then mirror excluding duplicates)
+    unique_beatmapsets = dict(local_beatmapsets)
+    
     for bmapset in result:
-        for child in bmapset["ChildrenBeatmaps"]:
-            normalized_result.append(
-                {
-                    "id": child["BeatmapID"],
-                    "set_id": bmapset["SetID"],
-                    "status": bmapset["RankedStatus"],
-                    "md5": child["FileMD5"],
-                    "artist": bmapset["Artist"],
-                    "title": bmapset["Title"],
-                    "version": child["DiffName"],
-                    "creator": bmapset["Creator"],
-                    "filename": None,
-                    "last_update": bmapset["LastUpdate"],
-                    "total_length": child["TotalLength"],
-                    "max_combo": child["MaxCombo"],
-                    "frozen": 0,
-                    "plays": child["Playcount"],
-                    "passes": child["Passcount"],
-                    "mode": child["Mode"],
-                    "bpm": child["BPM"],
-                    "cs": child["CS"],
-                    "ar": child["AR"],
-                    "od": child["OD"],
-                    "hp": child["HP"],
-                    "diff": child["DifficultyRating"],
-                },
-            )
+        if not bmapset.get("ChildrenBeatmaps"):
+            continue
+        set_id = bmapset["SetID"]
+        if set_id not in unique_beatmapsets:  # Only add if no local version
+            unique_beatmapsets[set_id] = {
+                "SetID": set_id,
+                "Artist": bmapset["Artist"],
+                "Title": bmapset["Title"],
+                "Creator": bmapset["Creator"], 
+                "RankedStatus": bmapset["RankedStatus"],
+                "LastUpdate": bmapset["LastUpdate"],
+                "HasVideo": int(bmapset.get("HasVideo", False)),
+                "ChildrenBeatmaps": bmapset["ChildrenBeatmaps"]
+            }
 
-    combined_results = bpy_bmapsets + normalized_result
+    # Format response
+    lresult = len(unique_beatmapsets)
+    ret = [f"{'101' if lresult == 100 else lresult}"]
 
-    unique_results = {bmap["set_id"]: bmap for bmap in combined_results}.values()
+    for bmapset in unique_beatmapsets.values():
+        if not bmapset["ChildrenBeatmaps"]:
+            continue
 
-    # Format results for the client
-    ret = [f"{'101' if len(unique_results) == 100 else len(unique_results)}"]
+        # Sort and format difficulties
+        sorted_diffs = sorted(
+            bmapset["ChildrenBeatmaps"],
+            key=lambda m: m["DifficultyRating"],
+        )
 
-    for bmap in unique_results:
+        diffs_str = ",".join(
+            DIRECT_MAP_INFO_FMTSTR.format(
+                DifficultyRating=row["DifficultyRating"],
+                DiffName=handle_invalid_characters(row["DiffName"]),
+                CS=row["CS"], OD=row["OD"], AR=row["AR"], HP=row["HP"],
+                Mode=row["Mode"],
+            ) for row in sorted_diffs
+        )
+
         ret.append(
             DIRECT_SET_INFO_FMTSTR.format(
-                SetID=bmap["set_id"],
-                Artist=bmap["artist"],
-                Title=bmap["title"],
-                Creator=bmap["creator"],
-                RankedStatus=bmap["status"],
-                LastUpdate=bmap["last_update"],
-                HasVideo=0,  # Not available in `bpy_bmapsets` or `result`
-                diffs=DIRECT_MAP_INFO_FMTSTR.format(
-                    DifficultyRating=bmap["diff"],
-                    DiffName=bmap["version"],
-                    CS=bmap["cs"],
-                    OD=bmap["od"],
-                    AR=bmap["ar"],
-                    HP=bmap["hp"],
-                    Mode=bmap["mode"],
-                ),
-            ),
+                SetID=bmapset["SetID"],
+                Artist=handle_invalid_characters(bmapset["Artist"]),
+                Title=handle_invalid_characters(bmapset["Title"]),
+                Creator=bmapset["Creator"],
+                RankedStatus=bmapset["RankedStatus"],
+                LastUpdate=bmapset["LastUpdate"],
+                HasVideo=bmapset["HasVideo"],
+                diffs=diffs_str,
+            )
         )
 
     return Response("\n".join(ret).encode())
