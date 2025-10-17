@@ -755,7 +755,7 @@ async def osuSearchHandler(
             "Mode": bmap["mode"]
         })
 
-    # Combine results (locals first, then catboy excluding duplicates)
+    # Combine results (locals first, then mirror excluding duplicates)
     unique_beatmapsets = dict(local_beatmapsets)
     
     for bmapset in result:
