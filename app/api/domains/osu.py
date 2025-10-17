@@ -683,7 +683,7 @@ DIRECT_MAP_INFO_FMTSTR = (
     "{{cs: {CS} / od: {OD} / ar: {AR} / hp: {HP}}}@{Mode}"
 )
 
-def handle_invalid_characters(s: str) -> str:
+def handle_invalid_characters(text: str) -> str:
     # XXX: this is a bug that exists on official servers (lmao)
     # | is used to delimit the set data, so the difficulty name
     # cannot contain this or it will be ignored. we fix it here
