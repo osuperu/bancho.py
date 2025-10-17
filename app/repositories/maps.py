@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from typing import TypedDict
 from typing import cast
 
@@ -289,6 +290,7 @@ async def search(
     status: int | None = None,
     page: int | None = None,
     page_size: int | None = None,
+    order: Literal["asc", "desc"] | None = None,
 ) -> list[Map]:
     """Search for maps in the database."""
     like_query = f"%{query}%"
@@ -308,6 +310,15 @@ async def search(
 
     if page is not None and page_size is not None:
         select_stmt = select_stmt.limit(page_size).offset((page - 1) * page_size)
+
+    if order is not None:
+        select_stmt = select_stmt.order_by(
+            (
+                MapsTable.last_update.desc()
+                if order == "desc"
+                else MapsTable.last_update.asc()
+            ),
+        )
 
     maps = await app.state.services.database.fetch_all(select_stmt)
     return cast(list[Map], maps)

@@ -731,9 +731,8 @@ async def osuSearchHandler(
         page_size=100,
         server=MapServer.PRIVATE,
         query=params.get("query", ""),
+        order="desc",
     )
-    # reverse list to show newest first
-    bpy_bmapsets = list(reversed(bpy_bmapsets))
 
     # Process local beatmapsets into a lookup dict
     local_beatmapsets = {}
