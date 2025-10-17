@@ -268,7 +268,7 @@ async def aggregate_pp_stats(
 
 
 async def delete_all_in_beatmap(map_md5: str) -> list[Score]:
-    """Delete all map pool entries from a given tourney pool from the database."""
+    """Delete all scores in a given beatmap."""
     select_stmt = select(*READ_PARAMS).where(ScoresTable.map_md5 == map_md5)
     scores = await app.state.services.database.fetch_all(select_stmt)
     if not scores:
