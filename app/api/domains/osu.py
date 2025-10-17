@@ -683,12 +683,14 @@ DIRECT_MAP_INFO_FMTSTR = (
     "{{cs: {CS} / od: {OD} / ar: {AR} / hp: {HP}}}@{Mode}"
 )
 
+
 def handle_invalid_characters(text: str) -> str:
     # XXX: this is a bug that exists on official servers (lmao)
     # | is used to delimit the set data, so the difficulty name
     # cannot contain this or it will be ignored. we fix it here
     # by using a different character.
     return text.replace("|", "I")
+
 
 @router.get("/web/osu-search.php")
 async def osuSearchHandler(
@@ -741,23 +743,28 @@ async def osuSearchHandler(
             local_beatmapsets[set_id] = {
                 "SetID": set_id,
                 "Artist": bmap["artist"],
-                "Title": bmap["title"], 
+                "Title": bmap["title"],
                 "Creator": bmap["creator"],
                 "RankedStatus": bmap["status"],
                 "LastUpdate": bmap["last_update"],
                 "HasVideo": 0,
-                "ChildrenBeatmaps": []
+                "ChildrenBeatmaps": [],
             }
-        local_beatmapsets[set_id]["ChildrenBeatmaps"].append({
-            "DifficultyRating": bmap["diff"],
-            "DiffName": bmap["version"],
-            "CS": bmap["cs"], "OD": bmap["od"], "AR": bmap["ar"], "HP": bmap["hp"],
-            "Mode": bmap["mode"]
-        })
+        local_beatmapsets[set_id]["ChildrenBeatmaps"].append(
+            {
+                "DifficultyRating": bmap["diff"],
+                "DiffName": bmap["version"],
+                "CS": bmap["cs"],
+                "OD": bmap["od"],
+                "AR": bmap["ar"],
+                "HP": bmap["hp"],
+                "Mode": bmap["mode"],
+            },
+        )
 
     # Combine results (locals first, then mirror excluding duplicates)
     unique_beatmapsets = dict(local_beatmapsets)
-    
+
     for bmapset in result:
         if not bmapset.get("ChildrenBeatmaps"):
             continue
@@ -767,11 +774,11 @@ async def osuSearchHandler(
                 "SetID": set_id,
                 "Artist": bmapset["Artist"],
                 "Title": bmapset["Title"],
-                "Creator": bmapset["Creator"], 
+                "Creator": bmapset["Creator"],
                 "RankedStatus": bmapset["RankedStatus"],
                 "LastUpdate": bmapset["LastUpdate"],
                 "HasVideo": int(bmapset.get("HasVideo", False)),
-                "ChildrenBeatmaps": bmapset["ChildrenBeatmaps"]
+                "ChildrenBeatmaps": bmapset["ChildrenBeatmaps"],
             }
 
     # Format response
@@ -792,9 +799,13 @@ async def osuSearchHandler(
             DIRECT_MAP_INFO_FMTSTR.format(
                 DifficultyRating=row["DifficultyRating"],
                 DiffName=handle_invalid_characters(row["DiffName"]),
-                CS=row["CS"], OD=row["OD"], AR=row["AR"], HP=row["HP"],
+                CS=row["CS"],
+                OD=row["OD"],
+                AR=row["AR"],
+                HP=row["HP"],
                 Mode=row["Mode"],
-            ) for row in sorted_diffs
+            )
+            for row in sorted_diffs
         )
 
         ret.append(
@@ -807,7 +818,7 @@ async def osuSearchHandler(
                 LastUpdate=bmapset["LastUpdate"],
                 HasVideo=bmapset["HasVideo"],
                 diffs=diffs_str,
-            )
+            ),
         )
 
     return Response("\n".join(ret).encode())
