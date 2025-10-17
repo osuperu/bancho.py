@@ -495,3 +495,6 @@ alter table users add lb_preference enum('pp', 'score') default 'score' not null
 
 # v5.2.5
 alter table users add show_bancho_lb tinyint(1) default 0 not null;
+
+# v5.2.6
+alter table mail modify msg varchar(2048) character set utf8mb4 collate utf8mb4_unicode_ci not null;
