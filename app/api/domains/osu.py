@@ -688,7 +688,7 @@ def handle_invalid_characters(text: str) -> str:
     # | is used to delimit the set data, so the difficulty name
     # cannot contain this or it will be ignored. we fix it here
     # by using a different character.
-    return s.replace("|", "I")
+    return text.replace("|", "I")
 
 @router.get("/web/osu-search.php")
 async def osuSearchHandler(
