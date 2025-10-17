@@ -239,3 +239,12 @@ def extract_audio_snippet(
     snippet_buffer = io.BytesIO()
     snippet.export(snippet_buffer, format="mp3", bitrate=bitrate)
     return snippet_buffer.getvalue()
+
+
+def get_replay_mode_name(mode: int) -> str:
+    return {
+        0: "osu",
+        1: "taiko",
+        2: "fruits",
+        3: "mania",
+    }[mode]

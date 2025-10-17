@@ -18,6 +18,7 @@ from fastapi.security import HTTPBearer
 import app.packets
 import app.state
 import app.usecases.performance
+from app import utils
 from app.constants import regexes
 from app.constants.gamemodes import GameMode
 from app.constants.mods import Mods
@@ -723,7 +724,7 @@ async def api_get_replay(
     # add replay headers from sql
     # TODO: osu_version & life graph in scores tables?
     row = await app.state.services.database.fetch_one(
-        "SELECT u.name username, m.md5 map_md5, "
+        "SELECT u.name username, m.id, m.md5 map_md5, "
         "m.artist, m.title, m.version, "
         "s.mode, s.n300, s.n100, s.n50, s.ngeki, "
         "s.nkatu, s.nmiss, s.score, s.max_combo, "
@@ -793,16 +794,16 @@ async def api_get_replay(
     # NOTE: target practice sends extra mods, but
     # can't submit scores so should not be a problem.
     # stream data back to the client
+
+    game_mode_str = utils.get_replay_mode_name(GameMode(row["mode"]).as_vanilla)
+    filename = f"replay-{game_mode_str}_{row["id"]}_{score_id}.osr"
+
     return Response(
         bytes(replay_data),
         media_type="application/octet-stream",
         headers={
             "Content-Description": "File Transfer",
-            "Content-Disposition": (
-                'attachment; filename="{username} - '
-                "{artist} - {title} [{version}] "
-                '({play_time:%Y-%m-%d}).osr"'
-            ).format(**row),
+            "Content-Disposition": (f"attachment; filename={filename}").format(**row),
         },
     )
 
