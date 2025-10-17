@@ -796,7 +796,7 @@ async def api_get_replay(
     # stream data back to the client
 
     game_mode_str = utils.get_replay_mode_name(GameMode(row["mode"]).as_vanilla)
-    filename = f"replay-{game_mode_str}_{row["id"]}_{score_id}.osr"
+    filename = f"replay-{game_mode_str}_{row['id']}_{score_id}.osr"
 
     return Response(
         bytes(replay_data),
