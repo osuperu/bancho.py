@@ -735,7 +735,7 @@ async def osuSearchHandler(
     )
 
     # Process local beatmapsets into a lookup dict
-    local_beatmapsets = {}
+    local_beatmapsets: dict[int, dict[str, Any]] = {}
     for bmap in bpy_bmapsets:
         set_id = bmap["set_id"]
         if set_id not in local_beatmapsets:
