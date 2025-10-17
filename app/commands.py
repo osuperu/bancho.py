@@ -15,7 +15,9 @@ from collections.abc import Callable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 from functools import wraps
 from time import perf_counter_ns as clock_ns
 from typing import TYPE_CHECKING
@@ -1237,6 +1239,79 @@ async def wipemap(ctx: Context) -> str | None:
     )
 
     return "Scores wiped."
+
+
+@command(Privileges.DEVELOPER)
+async def wipeuser(ctx: Context) -> str | None:
+    """Wipe all scores from a specified user by name."""
+    if not (3 <= len(ctx.args) <= 4):
+        return "Invalid syntax: !wipeuser <name> <mode> <date> (end_date)"
+
+    if not regexes.USERNAME.match(ctx.args[0]):
+        return "Invalid username."
+
+    user = await users_repo.fetch_one(name=ctx.args[0])
+    if user is None:
+        return "Player not found."
+
+    if ctx.args[1] not in GAMEMODE_REPR_LIST:
+        return f'Valid gamemodes: {", ".join(GAMEMODE_REPR_LIST)}.'
+
+    if ctx.args[1] in (
+        "rx!mania",
+        "ap!taiko",
+        "ap!catch",
+        "ap!mania",
+    ):
+        return "Impossible gamemode combination."
+
+    try:
+        start_date = datetime.strptime(ctx.args[2], "%Y-%m-%d")
+        start_time = start_date.replace(
+            hour=0,
+            minute=0,
+            second=0,
+            tzinfo=timezone.utc,
+        )
+
+        if len(ctx.args) == 4:
+            end_date = datetime.strptime(ctx.args[3], "%Y-%m-%d")
+            end_time = end_date.replace(
+                hour=23,
+                minute=59,
+                second=59,
+                tzinfo=timezone.utc,
+            )
+        else:
+            end_time = start_date.replace(
+                hour=23,
+                minute=59,
+                second=59,
+                tzinfo=timezone.utc,
+            )
+    except ValueError:
+        return 'Invalid date format. Please use "YYYY-MM-DD".'
+
+    mode = GAMEMODE_REPR_LIST.index(ctx.args[1])
+    scores = await scores_repo.delete_user_scores(
+        user_id=user["id"],
+        mode=mode,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    for score in scores:
+        app.state.services.storage.remove_replay(score["id"])
+
+    target = app.state.sessions.players.get(id=user["id"])
+
+    if target:
+        target.enqueue(
+            app.packets.notification(
+                f"Your scores from {start_time:%Y-%m-%d} to {end_time:%Y-%m-%d} have been wiped for gamemode {ctx.args[1]} by a developer.",
+            ),
+        )
+
+    return f"{len(scores)} scores wiped from {user['name']} for gamemode {ctx.args[1]}."
 
 
 @command(Privileges.DEVELOPER, aliases=["re"])

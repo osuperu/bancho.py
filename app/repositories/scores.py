@@ -279,3 +279,31 @@ async def delete_all_in_beatmap(map_md5: str) -> list[Score]:
     )
     await app.state.services.database.execute(delete_stmt)
     return cast(list[Score], scores)
+
+
+async def delete_user_scores(
+    user_id: int,
+    mode: int | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+) -> list[Score]:
+    """Delete scores of a given user, optionally within a time frame."""
+    select_stmt = select(*READ_PARAMS).where(ScoresTable.userid == user_id)
+    delete_stmt = delete(ScoresTable).where(ScoresTable.userid == user_id)
+
+    if mode is not None:
+        select_stmt = select_stmt.where(ScoresTable.mode == mode)
+        delete_stmt = delete_stmt.where(ScoresTable.mode == mode)
+    if start_time is not None:
+        select_stmt = select_stmt.where(ScoresTable.play_time >= start_time)
+        delete_stmt = delete_stmt.where(ScoresTable.play_time >= start_time)
+    if end_time is not None:
+        select_stmt = select_stmt.where(ScoresTable.play_time <= end_time)
+        delete_stmt = delete_stmt.where(ScoresTable.play_time <= end_time)
+
+    scores = await app.state.services.database.fetch_all(select_stmt)
+    if not scores:
+        return []
+
+    await app.state.services.database.execute(delete_stmt)
+    return cast(list[Score], scores)

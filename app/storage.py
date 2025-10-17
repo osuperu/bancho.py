@@ -120,6 +120,10 @@ class Storage:
     def upload_osz2(self, id: int, content: bytes) -> bool:
         return self.save(str(id), "osz2", content, "osz2")
 
+    def remove_replay(self, id: int) -> None:
+        log(f"Removing replay for score {id}", Ansi.GREEN)
+        self.remove(str(id), "osr", "osr")
+
     def remove_avatar(self, id: int) -> None:
         log(f"Removing avatar for user {id}", Ansi.GREEN)
         for ext in ("jpg", "png"):
