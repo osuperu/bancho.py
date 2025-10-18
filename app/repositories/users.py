@@ -73,6 +73,7 @@ READ_PARAMS = (
     UsersTable.id,
     UsersTable.name,
     UsersTable.safe_name,
+    UsersTable.email,
     UsersTable.priv,
     UsersTable.country,
     UsersTable.silence_end,
@@ -95,6 +96,7 @@ class User(TypedDict):
     id: int
     name: str
     safe_name: str
+    email: str
     priv: int
     pw_bcrypt: str
     country: str

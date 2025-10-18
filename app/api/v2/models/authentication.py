@@ -14,3 +14,13 @@ class RegistrationRequest(BaseModel):
     email: str
     password: str
     hcaptcha_token: str
+
+
+class InitializePasswordResetRequest(BaseModel):
+    username: str
+    hcaptcha_token: str
+
+
+class VerifyPasswordResetRequest(BaseModel):
+    hashed_password_reset_token: str
+    new_password: str

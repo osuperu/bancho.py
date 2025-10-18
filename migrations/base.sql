@@ -387,6 +387,17 @@ create table tokens
 		unique (token)
 );
 
+create table password_reset_tokens
+(
+	id int auto_increment
+		primary key,
+	hashed_token varchar(80) not null,
+	username varchar(30) not null,
+	created_at datetime not null,
+	constraint password_reset_tokens_hashed_token_uindex
+		unique (hashed_token)
+);
+
 insert into users (id, name, safe_name, priv, country, silence_end, email, pw_bcrypt, creation_time, latest_activity)
 values (1, 'BanchoBot', 'banchobot', 1, 'ca', 0, 'bot@akatsuki.pw',
         '_______________________my_cool_bcrypt_______________________', UNIX_TIMESTAMP(), UNIX_TIMESTAMP());

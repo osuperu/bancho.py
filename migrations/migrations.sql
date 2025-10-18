@@ -498,3 +498,15 @@ alter table users add show_bancho_lb tinyint(1) default 0 not null;
 
 # v5.2.6
 alter table mail modify msg varchar(2048) character set utf8mb4 collate utf8mb4_unicode_ci not null;
+
+# v5.2.7
+create table password_reset_tokens
+(
+	id int auto_increment
+		primary key,
+	hashed_token varchar(80) not null,
+	username varchar(30) not null,
+	created_at datetime not null,
+	constraint password_reset_tokens_hashed_token_uindex
+		unique (hashed_token)
+);

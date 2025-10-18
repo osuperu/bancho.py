@@ -15,6 +15,7 @@ import app.state.services
 from app.repositories import Base
 
 
+# TODO: Rename to access_tokens.py
 class TokensTable(Base):
     __tablename__ = "tokens"
 

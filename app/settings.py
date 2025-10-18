@@ -51,6 +51,11 @@ DATADOG_APP_KEY = os.environ["DATADOG_APP_KEY"]
 
 HCAPTCHA_SECRET_KEY = os.environ["HCAPTCHA_SECRET_KEY"]
 
+SMTP_SERVER_HOST = os.environ["SMTP_SERVER_HOST"]
+SMTP_SERVER_PORT = int(os.environ["SMTP_SERVER_PORT"])
+SMTP_EMAIL = os.environ["SMTP_EMAIL"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
+
 DEBUG = read_bool(os.environ["DEBUG"])
 REDIRECT_OSU_URLS = read_bool(os.environ["REDIRECT_OSU_URLS"])
 

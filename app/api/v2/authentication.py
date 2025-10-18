@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import secrets
 from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
@@ -17,7 +18,9 @@ import app.settings
 from app.api.v2.common import responses
 from app.api.v2.common.responses import Failure
 from app.api.v2.models.authentication import AuthenticationRequest
+from app.api.v2.models.authentication import InitializePasswordResetRequest
 from app.api.v2.models.authentication import RegistrationRequest
+from app.api.v2.models.authentication import VerifyPasswordResetRequest
 from app.constants import regexes
 from app.repositories import stats as stats_repo
 from app.repositories import tokens
@@ -143,6 +146,50 @@ async def logout(
         samesite="none",
     )
     return http_response
+
+
+@router.post("/init-password-reset")
+async def initialize_password_reset(args: InitializePasswordResetRequest) -> Any:
+    response = await app.state.services.http_client.post(
+        "https://hcaptcha.com/siteverify",
+        data={
+            "secret": app.settings.HCAPTCHA_SECRET_KEY,
+            "response": args.hcaptcha_token,
+        },
+    )
+    response_data = response.json()
+
+    if not response_data["success"]:
+        return responses.failure(
+            message="Invalid captcha.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    _response = await authentication.initialize_password_reset(
+        username=args.username,
+    )
+
+    if not _response:
+        return responses.failure(
+            message="Incorrect username.",
+        )
+
+    return Response(status_code=204)
+
+
+@router.post("/verify-password-reset")
+async def verify_password_reset(args: VerifyPasswordResetRequest) -> Any:
+    response = await authentication.verify_password_reset(
+        hashed_password_reset_token=args.hashed_password_reset_token,
+        new_password=args.new_password,
+    )
+
+    if not response:
+        return responses.failure(
+            message="Invalid token or user.",
+        )
+
+    return Response(status_code=204)
 
 
 async def authorize_request(
