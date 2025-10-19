@@ -75,6 +75,7 @@ async def search_maps(
     mode: int = Query(0, min=0, max=11),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    status: int | None = None,
     user: User | Failure = Depends(authenticate_user_session()),
 ) -> Success[list[Map]] | Failure:
     maps = await maps_repo.search(
@@ -82,7 +83,8 @@ async def search_maps(
         query=query,
         mode=mode,
         page=page,
-        page_size=page_size,
+        page_size=page_size,   
+        status=status, 
     )
 
     response = [Map.from_mapping(rec) for rec in maps]
