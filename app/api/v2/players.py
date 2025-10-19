@@ -23,7 +23,9 @@ from app.api.v2.models.players import PlayerStats
 from app.api.v2.models.players import PlayerStatus
 from app.api.v2.models.players import UpdatePlayerEmailRequest
 from app.api.v2.models.players import UpdatePlayerPasswordRequest
+from app.api.v2.models.players import UpdatePlayerRequest
 from app.api.v2.models.players import UpdatePlayerUsernameRequest
+from app.constants.privileges import Privileges
 from app.repositories import relationships as relationships_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
@@ -223,6 +225,41 @@ async def update_player_password(
     if updated_user is None:
         return responses.failure(
             message="Failed to update password.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    response = Player.from_mapping(updated_user)
+    return responses.success(response)
+
+
+@router.put("/players")
+async def update_player(
+    args: UpdatePlayerRequest,
+    user: User | Failure = Depends(authenticate_user_session()),
+) -> Success[Player] | Failure:
+    if isinstance(user, Failure):
+        return user
+
+    if not Privileges(user["priv"]) & Privileges.DEVELOPER:
+        return responses.failure(
+            message="Insufficient privileges.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+    updated_user = await users_repo.partial_update(
+        id=args.id,
+        name=args.username,
+        email=args.email,
+        country=args.country,
+        priv=args.priv,
+    )
+
+    if args.remove_avatar:
+        app.state.services.storage.remove_avatar(args.id)
+
+    if updated_user is None:
+        return responses.failure(
+            message="Failed to update player.",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import Base
+
 from . import BaseModel
 
 # input models
@@ -12,6 +14,7 @@ class Player(BaseModel):
     id: int
     name: str
     safe_name: str
+    email: str
 
     priv: int
     country: str
@@ -73,3 +76,12 @@ class UpdatePlayerEmailRequest(BaseModel):
 class UpdatePlayerPasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class UpdatePlayerRequest(BaseModel):
+    id: int
+    username: str
+    email: str
+    country: str
+    priv: int
+    remove_avatar: bool
