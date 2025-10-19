@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter
+from fastapi import Depends
 from fastapi import status
 from fastapi.param_functions import Query
 
+from app.api.v2.authentication import authenticate_user_session
 from app.api.v2.common import responses
 from app.api.v2.common.responses import Failure
 from app.api.v2.common.responses import Success
 from app.api.v2.models.maps import Map
 from app.repositories import maps as maps_repo
+from app.repositories.users import User
 
 router = APIRouter()
 
@@ -61,6 +66,28 @@ async def get_maps(
             "page_size": page_size,
         },
     )
+
+
+@router.get("/maps/search")
+async def search_maps(
+    server: Literal["osu!", "private"],
+    query: str = Query("", min=2, max=32),
+    mode: int = Query(0, min=0, max=11),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    user: User | Failure = Depends(authenticate_user_session()),
+) -> Success[list[Map]] | Failure:
+    maps = await maps_repo.search(
+        server=server,
+        query=query,
+        mode=mode,
+        page=page,
+        page_size=page_size,
+    )
+
+    response = [Map.from_mapping(rec) for rec in maps]
+
+    return responses.success(response)
 
 
 @router.get("/maps/{map_id}")
