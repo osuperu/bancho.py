@@ -15,7 +15,6 @@ from datetime import datetime
 from enum import IntEnum
 from enum import unique
 from functools import cache
-from math import e
 from pathlib import Path as SystemPath
 from typing import Any
 from typing import Literal
@@ -25,7 +24,6 @@ from urllib.parse import unquote_plus
 
 import aiosu
 import bcrypt
-from akatsuki_pp_py import DifficultyAttributes
 from fastapi import status
 from fastapi.datastructures import FormData
 from fastapi.datastructures import UploadFile
@@ -46,7 +44,6 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 import app.packets
 import app.settings
 import app.state
-import app.storage
 import app.usecases
 import app.usecases.performance
 import app.utils
@@ -63,7 +60,6 @@ from app.constants.mods import Mods
 from app.constants.privileges import Privileges
 from app.logging import Ansi
 from app.logging import log
-from app.objects import beatmap
 from app.objects import models
 from app.objects.beatmap import Beatmap
 from app.objects.beatmap import BeatmapSet
