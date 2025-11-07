@@ -694,14 +694,25 @@ async def _map(ctx: Context) -> str | None:
 
     async with app.state.services.database.transaction():
         if ctx.args[1] == "set":
-            # update all maps in the set
-            for _bmap in bmap.set.maps:
-                await maps_repo.partial_update(_bmap.id, status=new_status, frozen=True)
+            # update all maps in the set, including osu-trainer maps
+            all_maps_in_set = await maps_repo.fetch_many(set_id=bmap.set_id)
+            for _bmap_row in all_maps_in_set:
+                await maps_repo.partial_update(
+                    _bmap_row["id"],
+                    status=new_status,
+                    frozen=True,
+                )
+
+                # update cache if exists
+                if _bmap_row["md5"] in app.state.cache.beatmap:
+                    app.state.cache.beatmap[_bmap_row["md5"]].status = new_status
+                    app.state.cache.beatmap[_bmap_row["md5"]].frozen = True
 
             # make sure cache and db are synced about the newest change
-            for _bmap in app.state.cache.beatmapset[bmap.set_id].maps:
-                _bmap.status = new_status
-                _bmap.frozen = True
+            if bmap.set_id in app.state.cache.beatmapset:
+                for _bmap in app.state.cache.beatmapset[bmap.set_id].maps:
+                    _bmap.status = new_status
+                    _bmap.frozen = True
 
             webhook_url = app.settings.DISCORD_BEATMAP_UPDATES_WEBHOOK
             if webhook_url:
@@ -714,13 +725,7 @@ async def _map(ctx: Context) -> str | None:
                 asyncio.create_task(webhook.post())  # type: ignore[unused-awaitable]
 
             # select all map ids for clearing map requests.
-            modified_beatmap_ids = [
-                row["id"]
-                for row in await maps_repo.fetch_many(
-                    set_id=bmap.set_id,
-                )
-            ]
-
+            modified_beatmap_ids = [row["id"] for row in all_maps_in_set]
         else:
             # update only map
             await maps_repo.partial_update(bmap.id, status=new_status, frozen=True)
