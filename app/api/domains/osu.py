@@ -11,9 +11,12 @@ from collections import defaultdict
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
+from datetime import datetime
 from enum import IntEnum
 from enum import unique
 from functools import cache
+from math import e
+from pathlib import Path as SystemPath
 from typing import Any
 from typing import Literal
 from urllib.parse import quote
@@ -22,6 +25,7 @@ from urllib.parse import unquote_plus
 
 import aiosu
 import bcrypt
+from akatsuki_pp_py import DifficultyAttributes
 from fastapi import status
 from fastapi.datastructures import FormData
 from fastapi.datastructures import UploadFile
@@ -42,9 +46,13 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 import app.packets
 import app.settings
 import app.state
+import app.storage
+import app.usecases
+import app.usecases.performance
 import app.utils
 from app import bss
 from app import encryption
+from app import osu_trainer
 from app._typing import UNSET
 from app.adapters.osu_api_v1 import get_replay
 from app.adapters.osu_api_v2 import get_beatmap_scores
@@ -55,8 +63,10 @@ from app.constants.mods import Mods
 from app.constants.privileges import Privileges
 from app.logging import Ansi
 from app.logging import log
+from app.objects import beatmap
 from app.objects import models
 from app.objects.beatmap import Beatmap
+from app.objects.beatmap import BeatmapSet
 from app.objects.beatmap import RankedStatus
 from app.objects.beatmap import ensure_osu_file_is_available
 from app.objects.player import Player
@@ -86,6 +96,8 @@ router = APIRouter(
     tags=["osu! web API"],
     default_response_class=Response,
 )
+
+BEATMAPS_PATH = SystemPath.cwd() / ".data/osu"
 
 
 def bss_error_response(
@@ -1862,7 +1874,7 @@ async def getScores(
         stacktrace = app.utils.get_appropriate_stacktrace()
         await app.state.services.log_strange_occurrence(stacktrace)
 
-    # check if this md5 has already been  cached as
+    # check if this md5 has already been cached as
     # unsubmitted/needs update to reduce osu!api spam
     if map_md5 in app.state.cache.unsubmitted:
         return Response(b"-1|false")
@@ -1909,18 +1921,12 @@ async def getScores(
         map_filename = unquote_plus(map_filename)  # TODO: is unquote needed?
 
         map_exists = False
-        if has_set_id:
-            # we can look it up in the specific set from cache
-            for bmap in app.state.cache.beatmapset[map_set_id].maps:
-                if map_filename == bmap.filename:
+        if has_set_id and map_set_id in app.state.cache.beatmapset:
+            for b in app.state.cache.beatmapset[map_set_id].maps:
+                if map_filename == b.filename:
                     map_exists = True
                     break
-            else:
-                map_exists = False
         else:
-            # we can't find it on the osu!api by md5,
-            # and we don't have the set id, so we must
-            # look it up in sql from the filename.
             map_exists = (
                 await maps_repo.fetch_one(
                     filename=map_filename,
@@ -1933,14 +1939,134 @@ async def getScores(
             app.state.cache.needs_update.add(map_md5)
             return Response(b"1|false")
         else:
-            # map is unsubmitted.
-            # add this map to the unsubmitted cache, so
-            # that we don't have to make this request again.
-            app.state.cache.unsubmitted.add(map_md5)
-            return Response(b"-1|false")
+            # detect if this is an osu!trainer edited map
+            filename_match = regexes.OSU_FILENAME.match(map_filename)
+            if filename_match is None:
+                app.state.cache.unsubmitted.add(map_md5)
+                return Response(b"-1|false")
+
+            new_version = filename_match["version"]
+            original_version, edits = osu_trainer.split_version_from_edits(new_version)
+            if not edits:
+                # no edits detected, map doesn't exist
+                app.state.cache.unsubmitted.add(map_md5)
+                return Response(b"-1|false")
+
+            original_map_filename = f"{filename_match['artist']} - {filename_match['title']} ({filename_match['creator']}) [{original_version}].osu"
+            existing_beatmap = await maps_repo.fetch_one(
+                filename=original_map_filename,
+            )
+            if not existing_beatmap:
+                app.state.cache.unsubmitted.add(map_md5)
+                return Response(b"-1|false")
+
+            existing_edited_map = await maps_repo.fetch_one(filename=map_filename)
+
+            if existing_edited_map is not None:
+                # create the new edited .osu file
+                existing_osu_file = app.state.services.storage.get_beatmap_file(
+                    existing_beatmap["id"],
+                )
+                if existing_osu_file is not None:
+                    existing_md5 = hashlib.md5(existing_osu_file).hexdigest()
+                    if existing_md5 == map_md5:
+                        bmap_set = await BeatmapSet.from_bsid(
+                            existing_edited_map["set_id"],
+                        )
+                        assert bmap_set is not None
+                        bmap = Beatmap(map_set=bmap_set)
+                        bmap_set.maps.append(bmap)
+                    else:
+                        app.state.cache.needs_update.add(map_md5)
+                        return Response(b"1|false")
+                else:
+                    app.state.cache.needs_update.add(map_md5)
+                    return Response(b"1|false")
+            else:
+                original_osu_file = app.state.services.storage.get_beatmap_file(
+                    existing_beatmap["id"],
+                )
+                if not original_osu_file:
+                    app.state.cache.unsubmitted.add(map_md5)
+                    return Response(b"-1|false")
+
+                ensured_osu_file = await ensure_osu_file_is_available(
+                    existing_beatmap["id"],
+                    expected_md5=existing_beatmap["md5"],
+                )
+                if not ensured_osu_file:
+                    raise Exception("Couldn't ensure original .osu file")
+
+                requested_md5 = map_md5
+                new_beatmap_id = await maps_repo.generate_next_beatmap_id()
+                new_osu_file_path = BEATMAPS_PATH / f"{new_beatmap_id}.osu"
+
+                new_beatmap = osu_trainer.create_edited_beatmap(
+                    original_version=original_version,
+                    new_version=new_version,
+                    new_beatmap_id=new_beatmap_id,
+                    original_osu_file_path=original_osu_file,
+                    edits=edits,
+                )
+                new_beatmap.write_path(new_osu_file_path)
+
+                net_beatmap_file = app.state.services.storage.get_beatmap_file(
+                    new_beatmap_id,
+                )
+                assert net_beatmap_file is not None
+
+                map_md5 = hashlib.md5(net_beatmap_file).hexdigest()
+
+                difficulty_attributes = app.usecases.performance.calculate_difficulty(
+                    net_beatmap_file,
+                    mode=existing_beatmap["mode"],
+                )
+                assert difficulty_attributes is not None
+
+                await maps_repo.create(
+                    id=new_beatmap_id,
+                    server=MapServer.PRIVATE,
+                    set_id=existing_beatmap["set_id"],
+                    status=existing_beatmap["status"],
+                    md5=map_md5,
+                    artist=existing_beatmap["artist"],
+                    title=existing_beatmap["title"],
+                    version=new_version,
+                    creator=existing_beatmap["creator"],
+                    filename=map_filename,
+                    last_update=datetime.now(),
+                    total_length=existing_beatmap["total_length"],
+                    max_combo=existing_beatmap["max_combo"],
+                    frozen=existing_beatmap["frozen"],
+                    plays=0,
+                    passes=0,
+                    mode=existing_beatmap["mode"],
+                    bpm=float(edits.get("bpm", existing_beatmap["bpm"])),
+                    cs=float(edits.get("cs", existing_beatmap["cs"])),
+                    ar=float(edits.get("ar", existing_beatmap["ar"])),
+                    od=float(edits.get("od", existing_beatmap["od"])),
+                    hp=float(edits.get("hp", existing_beatmap["hp"])),
+                    diff=difficulty_attributes.stars,
+                )
+
+                new_map = await maps_repo.fetch_one(id=new_beatmap_id)
+                assert new_map is not None
+
+                bmap_set = await BeatmapSet.from_bsid(new_map["set_id"])
+                assert bmap_set is not None
+
+                new_bmap = Beatmap(map_set=bmap_set)
+                bmap_set.maps.append(new_bmap)
+
+                app.state.cache.beatmap[new_bmap.md5] = new_bmap
+                app.state.cache.beatmap[new_bmap.id] = new_bmap
+
+                if requested_md5 != map_md5:
+                    app.state.cache.needs_update.add(requested_md5)
+                    return Response(b"1|false")
+                bmap = new_bmap
 
     # we've found a beatmap for the request.
-
     if app.state.services.datadog:
         app.state.services.datadog.increment("bancho.leaderboards_served")  # type: ignore[no-untyped-call]
 
@@ -2255,6 +2381,7 @@ async def get_updated_beatmap(
 
     log(f"Got map request for: {map_filename}", Ansi.GREEN)
 
+    log(f"Filename: {map_filename}", Ansi.LGREEN)
     map = await maps_repo.fetch_one(filename=map_filename)
 
     if map is None:
@@ -2267,6 +2394,10 @@ async def get_updated_beatmap(
         )
 
     file = app.state.services.storage.get_beatmap_file(map["id"])
+    log(
+        f"Trying to get beatmap file for id {map['id']}: {'found' if file else 'not found'}",
+        Ansi.GREEN,
+    )
 
     if file is None:
         return Response(b"", status_code=404)
