@@ -1930,6 +1930,8 @@ async def getScores(
                 is not None
             )
 
+        new_bmap: Beatmap | None = None
+
         if map_exists:
             # map can be updated.
             app.state.cache.needs_update.add(map_md5)
@@ -1959,7 +1961,7 @@ async def getScores(
             existing_edited_map = await maps_repo.fetch_one(filename=map_filename)
 
             if existing_edited_map is not None:
-                # create the new edited .osu file
+                # if the base map has changed, we need to regenerate the custom rate map
                 existing_osu_file = app.state.services.storage.get_beatmap_file(
                     existing_beatmap["id"],
                 )
@@ -1973,8 +1975,66 @@ async def getScores(
                         bmap = Beatmap(map_set=bmap_set)
                         bmap_set.maps.append(bmap)
                     else:
-                        app.state.cache.needs_update.add(map_md5)
-                        return Response(b"1|false")
+                        # base map has changed, so we need to regenerate the custom rate map
+                        # regenerate the .osu file for the custom map using the new base
+                        new_osu_file_path = (
+                            BEATMAPS_PATH / f"{existing_edited_map['id']}.osu"
+                        )
+                        new_beatmap = osu_trainer.create_edited_beatmap(
+                            original_version=original_version,
+                            new_version=new_version,
+                            new_beatmap_id=existing_edited_map["id"],
+                            original_osu_file_path=existing_osu_file,
+                            edits=edits,
+                        )
+                        new_beatmap.write_path(new_osu_file_path)
+
+                        net_beatmap_file = app.state.services.storage.get_beatmap_file(
+                            existing_edited_map["id"],
+                        )
+                        assert net_beatmap_file is not None
+
+                        new_md5 = hashlib.md5(net_beatmap_file).hexdigest()
+
+                        difficulty_attributes = (
+                            app.usecases.performance.calculate_difficulty(
+                                net_beatmap_file,
+                                mode=existing_beatmap["mode"],
+                            )
+                        )
+                        assert difficulty_attributes is not None
+
+                        # update the database with the new md5 and difficulty
+                        await maps_repo.partial_update(
+                            existing_edited_map["id"],
+                            md5=new_md5,
+                            last_update=datetime.now(),
+                            diff=difficulty_attributes.stars,
+                        )
+
+                        # update cache
+                        if existing_edited_map["md5"] in app.state.cache.beatmap:
+                            app.state.cache.beatmap.pop(existing_edited_map["md5"])
+                        updated_map = await maps_repo.fetch_one(
+                            id=existing_edited_map["id"],
+                        )
+
+                        if updated_map:
+                            bmap_set = await BeatmapSet.from_bsid(updated_map["set_id"])
+                            assert bmap_set is not None
+                            new_bmap = Beatmap(map_set=bmap_set)
+                            bmap_set.maps.append(new_bmap)
+                            app.state.cache.beatmap[new_md5] = new_bmap
+                            app.state.cache.beatmap[existing_edited_map["id"]] = (
+                                new_bmap
+                            )
+
+                        # if the requested md5 is not the new one, mark as needs update
+                        if map_md5 != new_md5:
+                            app.state.cache.needs_update.add(map_md5)
+                            return Response(b"1|false")
+
+                        bmap = new_bmap
                 else:
                     app.state.cache.needs_update.add(map_md5)
                     return Response(b"1|false")
@@ -2061,6 +2121,8 @@ async def getScores(
                     app.state.cache.needs_update.add(requested_md5)
                     return Response(b"1|false")
                 bmap = new_bmap
+
+    assert bmap is not None
 
     # we've found a beatmap for the request.
     if app.state.services.datadog:
