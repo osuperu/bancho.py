@@ -25,6 +25,7 @@ from app.repositories import Base
 class MapsetServer(StrEnum):
     OSU = "osu!"
     PRIVATE = "private"
+    OSU_TRAINER = "osu!trainer"
 
 
 class MapsetTable(Base):

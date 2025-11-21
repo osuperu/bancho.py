@@ -120,11 +120,12 @@ create table mail
 
 create table maps
 (
-	server enum('osu!', 'private') default 'osu!' not null,
-	id int not null,
+	server enum('osu!', 'private', 'osu!trainer') default 'osu!' not null,
+	id bigint unsigned not null,
 	set_id int not null,
 	status int not null,
 	md5 char(32) not null,
+	original_md5 char(32) null,
 	artist varchar(128) charset utf8 not null,
 	title varchar(128) charset utf8 not null,
 	version varchar(128) charset utf8 not null,
@@ -164,7 +165,7 @@ create index maps_frozen_index
 
 create table mapsets
 (
-	server enum('osu!', 'private') default 'osu!' not null,
+	server enum('osu!', 'private', 'osu!trainer') default 'osu!' not null,
 	id int not null,
 	last_osuapi_check datetime default CURRENT_TIMESTAMP not null,
 	primary key (server, id),

@@ -111,6 +111,7 @@ async def update_beatmaps(
                 md5=hashlib.md5(
                     str(await maps_repo.generate_next_beatmap_id()).encode("utf-8"),
                 ).hexdigest(),
+                original_md5="",
                 artist=bmapset[0]["artist"],
                 title=bmapset[0]["title"],
                 version=bmapset[0]["version"],
@@ -161,6 +162,7 @@ async def create_beatmapset(
             md5=hashlib.md5(
                 str(await maps_repo.generate_next_beatmap_id()).encode("utf-8"),
             ).hexdigest(),
+            original_md5="",
             artist="",
             title="",
             version="",

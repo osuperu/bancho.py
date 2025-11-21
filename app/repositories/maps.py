@@ -25,13 +25,15 @@ from app._typing import UNSET
 from app._typing import _UnsetSentinel
 from app.repositories import Base
 
-INITIAL_MAP_ID = 1000000000
-INITIAL_SET_ID = 1000000000
+PRIVATE_INITIAL_MAP_ID = 1000000000
+PRIVATE_INITIAL_SET_ID = 1000000000
+OSU_TRAINER_INITIAL_MAP_ID = 1550000000
 
 
 class MapServer(StrEnum):
     OSU = "osu!"
     PRIVATE = "private"
+    OSU_TRAINER = "osu!trainer"
 
 
 class MapsTable(Base):
@@ -47,6 +49,7 @@ class MapsTable(Base):
     set_id = Column(Integer, nullable=False)
     status = Column(Integer, nullable=False)
     md5 = Column(String(32), nullable=False)
+    original_md5 = Column(String(32), nullable=True)
     artist = Column(String(128, collation="utf8"), nullable=False)
     title = Column(String(128, collation="utf8"), nullable=False)
     version = Column(String(128, collation="utf8"), nullable=False)
@@ -84,6 +87,7 @@ READ_PARAMS = (
     MapsTable.set_id,
     MapsTable.status,
     MapsTable.md5,
+    MapsTable.original_md5,
     MapsTable.artist,
     MapsTable.title,
     MapsTable.version,
@@ -111,6 +115,7 @@ class Map(TypedDict):
     set_id: int
     status: int
     md5: str
+    original_md5: str | None
     artist: str
     title: str
     version: str
@@ -137,6 +142,7 @@ async def create(
     set_id: int,
     status: int,
     md5: str,
+    original_md5: str | None,
     artist: str,
     title: str,
     version: str,
@@ -163,6 +169,7 @@ async def create(
         set_id=set_id,
         status=status,
         md5=md5,
+        original_md5=original_md5,
         artist=artist,
         title=title,
         version=version,
@@ -193,6 +200,7 @@ async def create(
 async def fetch_one(
     id: int | None = None,
     md5: str | None = None,
+    original_md5: str | None = None,
     filename: str | None = None,
 ) -> Map | None:
     """Fetch a beatmap entry from the database."""
@@ -204,6 +212,8 @@ async def fetch_one(
         select_stmt = select_stmt.where(MapsTable.id == id)
     if md5 is not None:
         select_stmt = select_stmt.where(MapsTable.md5 == md5)
+    if original_md5 is not None:
+        select_stmt = select_stmt.where(MapsTable.original_md5 == original_md5)
     if filename is not None:
         select_stmt = select_stmt.where(MapsTable.filename == filename)
 
@@ -330,6 +340,7 @@ async def partial_update(
     set_id: int | _UnsetSentinel = UNSET,
     status: int | _UnsetSentinel = UNSET,
     md5: str | _UnsetSentinel = UNSET,
+    original_md5: str | _UnsetSentinel = UNSET,
     artist: str | _UnsetSentinel = UNSET,
     title: str | _UnsetSentinel = UNSET,
     version: str | _UnsetSentinel = UNSET,
@@ -359,6 +370,8 @@ async def partial_update(
         update_stmt = update_stmt.values(status=status)
     if not isinstance(md5, _UnsetSentinel):
         update_stmt = update_stmt.values(md5=md5)
+    if not isinstance(original_md5, _UnsetSentinel):
+        update_stmt = update_stmt.values(original_md5=original_md5)
     if not isinstance(artist, _UnsetSentinel):
         update_stmt = update_stmt.values(artist=artist)
     if not isinstance(title, _UnsetSentinel):
@@ -425,7 +438,7 @@ async def generate_next_beatmap_id() -> int:
 
     if rec["max_id"] is None:
         # If there are no records, return the initial ID
-        return INITIAL_MAP_ID
+        return PRIVATE_INITIAL_MAP_ID
 
     return cast(int, rec["max_id"]) + 1
 
@@ -440,6 +453,21 @@ async def generate_next_beatmapset_id() -> int:
 
     if rec["max_id"] is None:
         # If there are no records, return the initial ID
-        return INITIAL_SET_ID
+        return PRIVATE_INITIAL_SET_ID
+
+    return cast(int, rec["max_id"]) + 1
+
+
+async def generate_next_osu_trainer_beatmap_id() -> int:
+    """Generate the next beatmap ID."""
+    select_stmt = select(func.max(MapsTable.id).label("max_id")).where(
+        MapsTable.server == MapServer.OSU_TRAINER,
+    )
+    rec = await app.state.services.database.fetch_one(select_stmt)
+    assert rec is not None
+
+    if rec["max_id"] is None:
+        # If there are no records, return the initial ID
+        return OSU_TRAINER_INITIAL_MAP_ID
 
     return cast(int, rec["max_id"]) + 1

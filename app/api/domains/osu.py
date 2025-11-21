@@ -79,8 +79,8 @@ from app.repositories import scores as scores_repo
 from app.repositories import stats as stats_repo
 from app.repositories import users as users_repo
 from app.repositories.achievements import Achievement
-from app.repositories.maps import INITIAL_MAP_ID
-from app.repositories.maps import INITIAL_SET_ID
+from app.repositories.maps import PRIVATE_INITIAL_MAP_ID
+from app.repositories.maps import PRIVATE_INITIAL_SET_ID
 from app.repositories.maps import MapServer
 from app.usecases import achievements as achievements_usecases
 from app.usecases import maps as maps_usecases
@@ -1947,6 +1947,7 @@ async def getScores(
             original_version, edits = osu_trainer.split_version_from_edits(new_version)
             if not edits:
                 # no edits detected, map doesn't exist
+                log("No edits detected, map doesn't exists", Ansi.LYELLOW)
                 app.state.cache.unsubmitted.add(map_md5)
                 return Response(b"-1|false")
 
@@ -1961,22 +1962,15 @@ async def getScores(
             existing_edited_map = await maps_repo.fetch_one(filename=map_filename)
 
             if existing_edited_map is not None:
-                # if the base map has changed, we need to regenerate the custom rate map
-                existing_osu_file = app.state.services.storage.get_beatmap_file(
+                # if the edited map already exists, check if the original changed using original_md5
+                original_osu_file = app.state.services.storage.get_beatmap_file(
                     existing_beatmap["id"],
                 )
-                if existing_osu_file is not None:
-                    existing_md5 = hashlib.md5(existing_osu_file).hexdigest()
-                    if existing_md5 == map_md5:
-                        bmap_set = await BeatmapSet.from_bsid(
-                            existing_edited_map["set_id"],
-                        )
-                        assert bmap_set is not None
-                        bmap = Beatmap(map_set=bmap_set)
-                        bmap_set.maps.append(bmap)
-                    else:
-                        # base map has changed, so we need to regenerate the custom rate map
-                        # regenerate the .osu file for the custom map using the new base
+                if original_osu_file is not None:
+                    current_original_md5 = hashlib.md5(original_osu_file).hexdigest()
+                    # if the md5 stored in original_md5 does not match the current md5 of the original, we need to regenerate the edit
+                    if existing_edited_map.get("original_md5") != current_original_md5:
+                        # regenerate the edited .osu using the new base
                         new_osu_file_path = (
                             BEATMAPS_PATH / f"{existing_edited_map['id']}.osu"
                         )
@@ -1984,7 +1978,7 @@ async def getScores(
                             original_version=original_version,
                             new_version=new_version,
                             new_beatmap_id=existing_edited_map["id"],
-                            original_osu_file_path=existing_osu_file,
+                            original_osu_file_path=original_osu_file,
                             edits=edits,
                         )
                         new_beatmap.write_path(new_osu_file_path)
@@ -2004,12 +1998,13 @@ async def getScores(
                         )
                         assert difficulty_attributes is not None
 
-                        # update the database with the new md5 and difficulty
+                        # update the database with the new md5, difficulty and original_md5
                         await maps_repo.partial_update(
                             existing_edited_map["id"],
                             md5=new_md5,
                             last_update=datetime.now(),
                             diff=difficulty_attributes.stars,
+                            original_md5=current_original_md5,
                         )
 
                         # update cache
@@ -2035,10 +2030,19 @@ async def getScores(
                             return Response(b"1|false")
 
                         bmap = new_bmap
+                    else:
+                        # the base map did not change, the edit is still valid
+                        bmap_set = await BeatmapSet.from_bsid(
+                            existing_edited_map["set_id"],
+                        )
+                        assert bmap_set is not None
+                        bmap = Beatmap(map_set=bmap_set)
+                        bmap_set.maps.append(bmap)
                 else:
                     app.state.cache.needs_update.add(map_md5)
                     return Response(b"1|false")
             else:
+                # the edited map does not exist, create it and store the md5 of the original in original_md5
                 original_osu_file = app.state.services.storage.get_beatmap_file(
                     existing_beatmap["id"],
                 )
@@ -2054,7 +2058,7 @@ async def getScores(
                     raise Exception("Couldn't ensure original .osu file")
 
                 requested_md5 = map_md5
-                new_beatmap_id = await maps_repo.generate_next_beatmap_id()
+                new_beatmap_id = await maps_repo.generate_next_osu_trainer_beatmap_id()
                 new_osu_file_path = BEATMAPS_PATH / f"{new_beatmap_id}.osu"
 
                 new_beatmap = osu_trainer.create_edited_beatmap(
@@ -2071,7 +2075,7 @@ async def getScores(
                 )
                 assert net_beatmap_file is not None
 
-                map_md5 = hashlib.md5(net_beatmap_file).hexdigest()
+                new_md5 = hashlib.md5(net_beatmap_file).hexdigest()
 
                 difficulty_attributes = app.usecases.performance.calculate_difficulty(
                     net_beatmap_file,
@@ -2079,12 +2083,15 @@ async def getScores(
                 )
                 assert difficulty_attributes is not None
 
+                original_md5 = hashlib.md5(original_osu_file).hexdigest()
+
                 await maps_repo.create(
                     id=new_beatmap_id,
-                    server=MapServer.PRIVATE,
+                    server=MapServer.OSU_TRAINER,
                     set_id=existing_beatmap["set_id"],
                     status=existing_beatmap["status"],
-                    md5=map_md5,
+                    md5=new_md5,
+                    original_md5=original_md5,
                     artist=existing_beatmap["artist"],
                     title=existing_beatmap["title"],
                     version=new_version,
@@ -2117,7 +2124,7 @@ async def getScores(
                 app.state.cache.beatmap[new_bmap.md5] = new_bmap
                 app.state.cache.beatmap[new_bmap.id] = new_bmap
 
-                if requested_md5 != map_md5:
+                if requested_md5 != new_md5:
                     app.state.cache.needs_update.add(requested_md5)
                     return Response(b"1|false")
                 bmap = new_bmap
@@ -2129,10 +2136,12 @@ async def getScores(
         app.state.services.datadog.increment("bancho.leaderboards_served")  # type: ignore[no-untyped-call]
 
     if bmap.status < RankedStatus.Ranked:
+        log(f"DEBUG: status for {bmap.filename} is {bmap.status}", Ansi.LYELLOW)
         # only show leaderboards for ranked,
         # approved, qualified, or loved maps.
         return Response(f"{int(bmap.status)}|false".encode())
 
+    log(f"DEBUG-2: status for {bmap.filename} is {bmap.status}", Ansi.LYELLOW)
     # fetch scores & personal best
     # TODO: create a leaderboard cache
     if not requesting_from_editor_song_select:
@@ -2408,7 +2417,7 @@ async def get_osz(
     if no_video:
         map_set_id = map_set_id[:-1]
 
-    if int(map_set_id) >= INITIAL_SET_ID:
+    if int(map_set_id) >= PRIVATE_INITIAL_SET_ID:
         osz_disk_file = app.state.services.storage.get_osz(int(map_set_id))
 
         return Response(
@@ -2445,7 +2454,7 @@ async def get_updated_beatmap(
     if map is None:
         return Response(b"", status_code=404)
 
-    if int(map["id"]) < INITIAL_MAP_ID:
+    if int(map["id"]) < PRIVATE_INITIAL_MAP_ID:
         return RedirectResponse(
             url=f"https://osu.ppy.sh{request['raw_path'].decode()}",
             status_code=status.HTTP_301_MOVED_PERMANENTLY,

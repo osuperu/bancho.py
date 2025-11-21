@@ -10,8 +10,8 @@ from fastapi.responses import RedirectResponse
 
 import app.state
 from app import utils
-from app.repositories.maps import INITIAL_MAP_ID
-from app.repositories.maps import INITIAL_SET_ID
+from app.repositories.maps import PRIVATE_INITIAL_MAP_ID
+from app.repositories.maps import PRIVATE_INITIAL_SET_ID
 
 router = APIRouter(tags=["Beatmaps"])
 
@@ -23,7 +23,7 @@ async def thumbnail(file: str = Path(...)) -> Response:
 
     map_set_id = map_set_id[:-1] if large else map_set_id
 
-    if int(map_set_id) >= INITIAL_MAP_ID:
+    if int(map_set_id) >= PRIVATE_INITIAL_MAP_ID:
         thumbnail_file = app.state.services.storage.get_beatmap_thumbnail(map_set_id)
 
         if thumbnail_file is not None:
@@ -55,7 +55,7 @@ async def thumbnail(file: str = Path(...)) -> Response:
 async def preview(file: str = Path(...)) -> Response:
     map_set_id = file.removesuffix(".mp3")
 
-    if int(map_set_id) >= INITIAL_MAP_ID:
+    if int(map_set_id) >= PRIVATE_INITIAL_MAP_ID:
         audio_file = app.state.services.storage.get_beatmap_audio(map_set_id)
 
         if audio_file is not None:
@@ -78,7 +78,7 @@ async def preview(file: str = Path(...)) -> Response:
 
 @router.get("/cover/{beatmapset_id}")
 async def cover(beatmapset_id: str = Path(...)) -> Response:
-    if int(beatmapset_id) >= INITIAL_SET_ID:
+    if int(beatmapset_id) >= PRIVATE_INITIAL_SET_ID:
         cover_file = app.state.services.storage.get_beatmap_cover(beatmapset_id)
 
         if cover_file is not None:

@@ -510,3 +510,9 @@ create table password_reset_tokens
 	constraint password_reset_tokens_hashed_token_uindex
 		unique (hashed_token)
 );
+
+# v5.2.8
+alter table maps add original_md5 char(32) null after md5;
+alter table maps modify column id bigint unsigned not null;
+alter table maps change server server enum('osu!', 'private', 'osu!trainer') default 'osu!' not null;
+alter table mapsets change server server enum('osu!', 'private', 'osu!trainer') default 'osu!' not null;
