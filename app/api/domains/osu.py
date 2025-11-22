@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import hashlib
@@ -1873,8 +1874,10 @@ async def getScores(
     # check if this md5 has already been cached as
     # unsubmitted/needs update to reduce osu!api spam
     if map_md5 in app.state.cache.unsubmitted:
+        log(f"(DEBUG) Map marked as unsubmitted in cache", Ansi.LYELLOW)
         return Response(b"-1|false")
     if map_md5 in app.state.cache.needs_update:
+        log(f"(DEBUG) Map marked as needs update in cache", Ansi.LYELLOW)
         return Response(b"1|false")
 
     if mods_arg & Mods.RELAX:
@@ -1906,12 +1909,14 @@ async def getScores(
     has_set_id = map_set_id > 0
 
     if not bmap:
+        log(f"(DEBUG) Map not found in cache/db, checking existence", Ansi.LYELLOW)
         # map not found, figure out whether it needs an
         # update or isn't submitted using its filename.
 
         if has_set_id and map_set_id not in app.state.cache.beatmapset:
             # set not cached, it doesn't exist
             app.state.cache.unsubmitted.add(map_md5)
+            log(f"(DEBUG) Mapset ID {map_set_id} not in cache", Ansi.LYELLOW)
             return Response(b"-1|false")
 
         map_filename = unquote_plus(map_filename)  # TODO: is unquote needed?
@@ -1921,6 +1926,7 @@ async def getScores(
             for b in app.state.cache.beatmapset[map_set_id].maps:
                 if map_filename == b.filename:
                     map_exists = True
+                    log(f"(DEBUG) Map found in cached mapset", Ansi.LYELLOW)
                     break
         else:
             map_exists = (
@@ -1929,25 +1935,29 @@ async def getScores(
                 )
                 is not None
             )
+            log(f"(DEBUG) Map found in database lookup", Ansi.LYELLOW)
+        log(f"(DEBUG) Map existence: {map_exists}", Ansi.LYELLOW)
 
         new_bmap: Beatmap | None = None
 
         if map_exists:
             # map can be updated.
             app.state.cache.needs_update.add(map_md5)
+            log(f"(DEBUG) Map marked as needs update", Ansi.LYELLOW)
             return Response(b"1|false")
         else:
             # detect if this is an osu!trainer edited map
             filename_match = regexes.OSU_FILENAME.match(map_filename)
             if filename_match is None:
                 app.state.cache.unsubmitted.add(map_md5)
+                log(f"(DEBUG) Filename did not match osu!trainer pattern", Ansi.LYELLOW)
                 return Response(b"-1|false")
 
             new_version = filename_match["version"]
             original_version, edits = osu_trainer.split_version_from_edits(new_version)
             if not edits:
                 # no edits detected, map doesn't exist
-                log("No edits detected, map doesn't exists", Ansi.LYELLOW)
+                log(f"(DEBUG) No edits detected in version string", Ansi.LYELLOW)
                 app.state.cache.unsubmitted.add(map_md5)
                 return Response(b"-1|false")
 
@@ -1956,20 +1966,45 @@ async def getScores(
                 filename=original_map_filename,
             )
             if not existing_beatmap:
+                log(f"(DEBUG) Original map for edit not found", Ansi.LYELLOW)
                 app.state.cache.unsubmitted.add(map_md5)
                 return Response(b"-1|false")
 
             existing_edited_map = await maps_repo.fetch_one(filename=map_filename)
 
             if existing_edited_map is not None:
+                log(
+                    f"(DEBUG) Edited map already exists, checking original md5",
+                    Ansi.LYELLOW,
+                )
                 # if the edited map already exists, check if the original changed using original_md5
                 original_osu_file = app.state.services.storage.get_beatmap_file(
                     existing_beatmap["id"],
                 )
                 if original_osu_file is not None:
+                    log(
+                        f"(DEBUG) Retrieved original .osu file for md5 check",
+                        Ansi.LYELLOW,
+                    )
                     current_original_md5 = hashlib.md5(original_osu_file).hexdigest()
                     # if the md5 stored in original_md5 does not match the current md5 of the original, we need to regenerate the edit
+                    log(
+                        f"(DEBUG) Comparing stored original md5 with current original md5",
+                        Ansi.LYELLOW,
+                    )
+                    log(
+                        f"(DEBUG) Stored original md5: {existing_edited_map.get('original_md5')}",
+                        Ansi.LYELLOW,
+                    )
+                    log(
+                        f"(DEBUG) Current original md5: {current_original_md5}",
+                        Ansi.LYELLOW,
+                    )
                     if existing_edited_map.get("original_md5") != current_original_md5:
+                        log(
+                            f"(DEBUG) Original md5 mismatch, regenerating edited map",
+                            Ansi.LYELLOW,
+                        )
                         # regenerate the edited .osu using the new base
                         new_osu_file_path = (
                             BEATMAPS_PATH / f"{existing_edited_map['id']}.osu"
@@ -2015,9 +2050,20 @@ async def getScores(
                         )
 
                         if updated_map:
+                            # fix: remove set from cache to force reload with new map
+                            if updated_map["set_id"] in app.state.cache.beatmapset:
+                                app.state.cache.beatmapset.pop(updated_map["set_id"])
+
                             bmap_set = await BeatmapSet.from_bsid(updated_map["set_id"])
                             assert bmap_set is not None
-                            new_bmap = Beatmap(map_set=bmap_set)
+                            new_bmap = await Beatmap.from_md5(
+                                updated_map["md5"],
+                                set_id=updated_map["set_id"],
+                            )
+                            # new_bmap = Beatmap(map_set=bmap_set)
+
+                            assert new_bmap is not None
+
                             bmap_set.maps.append(new_bmap)
                             app.state.cache.beatmap[new_md5] = new_bmap
                             app.state.cache.beatmap[existing_edited_map["id"]] = (
@@ -2031,6 +2077,10 @@ async def getScores(
 
                         bmap = new_bmap
                     else:
+                        log(
+                            f"(DEBUG) Original md5 matches, using existing edited map",
+                            Ansi.LYELLOW,
+                        )
                         # the base map did not change, the edit is still valid
                         bmap_set = await BeatmapSet.from_bsid(
                             existing_edited_map["set_id"],
@@ -2042,6 +2092,10 @@ async def getScores(
                     app.state.cache.needs_update.add(map_md5)
                     return Response(b"1|false")
             else:
+                log(
+                    f"(DEBUG) Edited map does not exist, creating new edited map",
+                    Ansi.LYELLOW,
+                )
                 # the edited map does not exist, create it and store the md5 of the original in original_md5
                 original_osu_file = app.state.services.storage.get_beatmap_file(
                     existing_beatmap["id"],
@@ -2115,11 +2169,17 @@ async def getScores(
                 new_map = await maps_repo.fetch_one(id=new_beatmap_id)
                 assert new_map is not None
 
-                bmap_set = await BeatmapSet.from_bsid(new_map["set_id"])
-                assert bmap_set is not None
+                # fix: remove set from cache to force reload with new map
+                if new_map["set_id"] in app.state.cache.beatmapset:
+                    app.state.cache.beatmapset.pop(new_map["set_id"])
 
-                new_bmap = Beatmap(map_set=bmap_set)
-                bmap_set.maps.append(new_bmap)
+                new_bmap = await Beatmap.from_md5(
+                    md5=new_map["md5"],
+                )
+                log(f"New map md5: {new_map['md5']}", Ansi.LYELLOW)
+                log(f"New mapset id: {new_map['set_id']}", Ansi.LYELLOW)
+                log(f"Beatmap: {new_bmap}", Ansi.LYELLOW)
+                assert new_bmap is not None
 
                 app.state.cache.beatmap[new_bmap.md5] = new_bmap
                 app.state.cache.beatmap[new_bmap.id] = new_bmap
@@ -2136,12 +2196,18 @@ async def getScores(
         app.state.services.datadog.increment("bancho.leaderboards_served")  # type: ignore[no-untyped-call]
 
     if bmap.status < RankedStatus.Ranked:
-        log(f"DEBUG: status for {bmap.filename} is {bmap.status}", Ansi.LYELLOW)
+        log(
+            f"(DEBUG) status for {bmap.filename} is {bmap.status}, no leaderboard",
+            Ansi.LYELLOW,
+        )
         # only show leaderboards for ranked,
         # approved, qualified, or loved maps.
         return Response(f"{int(bmap.status)}|false".encode())
 
-    log(f"DEBUG-2: status for {bmap.filename} is {bmap.status}", Ansi.LYELLOW)
+    log(
+        f"(DEBUG) status for {bmap.filename} is {bmap.status}, fetching leaderboard",
+        Ansi.LYELLOW,
+    )
     # fetch scores & personal best
     # TODO: create a leaderboard cache
     if not requesting_from_editor_song_select:
